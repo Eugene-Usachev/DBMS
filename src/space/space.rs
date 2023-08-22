@@ -122,6 +122,7 @@ pub trait SpaceInterface {
 }
 
 pub enum SpaceEngineType {
+    Cache,
     InMemory,
     OnDisk,
 }

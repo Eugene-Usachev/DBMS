@@ -12,7 +12,6 @@ use crate::constants::size;
 use crate::space::space::{Space, SpaceEngineType, SpaceInterface};
 use crate::console::write_errors;
 use crate::utils;
-use crate::utils::fastbytes::uint;
 
 pub(crate) struct Server {
     port: u16,
@@ -37,7 +36,7 @@ impl Server {
            return;
         }
         self.is_running = true;
-        let listener_ = TcpListener::bind(format!("dbms:{}", self.port));
+        let listener_ = TcpListener::bind(format!("127.0.0.1:{}", self.port));
         let mut listener = match listener_ {
             Ok(listener) => listener,
             Err(e) => {
@@ -50,17 +49,7 @@ impl Server {
             thread::spawn(move || {
                 match stream {
                     Ok(mut stream) => {
-                        let mut buf = [actions::PING;1];
-                        while match stream.read(&mut buf) {
-                            Ok(0) => false,
-                            Ok(size) => {
-                                stream.write(&buf).unwrap();
-                                true
-                            },
-                            Err(_) => {
-                              false
-                            }
-                        } {}
+                        Self::handle_client(spaces, stream);
                     }
                     Err(e) => {
                         println!("Error: {}", e);
@@ -73,33 +62,31 @@ impl Server {
     #[inline(always)]
     fn handle_client(spaces: Arc<RwLock<Vec<Space>>>, mut stream: TcpStream) {
         let mut read_buffer = [0u8; size::READ_BUFFER_SIZE];
-        let mut write_buffer = [0u8; size::WRITE_BUFFER_SIZE];
+        let mut write_buffer = [0u8; 256 * size::WRITE_BUFFER_SIZE];
+        let mut write_offset = 0;
         while match stream.read(&mut read_buffer) {
             Ok(0) => false,
             Ok(size) => {
-                // let mut offset = 0;
-                // loop {
-                //     let spaces = Arc::clone(&spaces);
-                //     if offset == size {
-                //         break;
-                //     }
-                //     let size:u16 = utils::fastbytes::uint::u16(&read_buffer[offset..offset+2]);
-                //     if size == 65535 {
-                //         let big_size:u32 = utils::fastbytes::uint::u32(&read_buffer[offset+2..offset+6]);
-                //         offset += 6 + big_size as usize;
-                //         write_offset = Self::handle_message(spaces, &read_buffer[offset..offset + big_size as usize], &mut write_buffer, write_offset);
-                //     } else {
-                //         offset += 2 + size as usize;
-                //         write_offset = Self::handle_message(spaces, &read_buffer[offset..size as usize], &mut write_buffer, write_offset);
-                //     }
-                // }
-                let spaces = Arc::clone(&spaces);
-                let write_size = Self::handle_message(spaces, &read_buffer[..size], &mut write_buffer);
-                stream.write_all(&mut write_buffer[..write_size]).expect("Can't write to stream");
+                let mut offset = 0;
+                loop {
+                    let spaces = Arc::clone(&spaces);
+                    if offset == size {
+                        break;
+                    }
+                    let size:u16 = utils::fastbytes::uint::u16(&read_buffer[offset..offset+2]);
+                    if size == 65535 {
+                        let big_size:u32 = utils::fastbytes::uint::u32(&read_buffer[offset+2..offset+6]);
+                        offset += 6 + big_size as usize;
+                        write_offset = Self::handle_message(spaces, &read_buffer[offset..offset + big_size as usize], &mut write_buffer, write_offset);
+                    } else {
+                        offset += 2 + size as usize;
+                        write_offset = Self::handle_message(spaces, &read_buffer[offset..size as usize], &mut write_buffer, write_offset);
+                    }
+                }
                 true
             },
-            Err(e) => {
-                println!("An error occurred, terminating connection with {}, error has a message: {:?}", stream.peer_addr().unwrap(), e);
+            Err(_) => {
+                println!("An error occurred, terminating connection with {}", stream.peer_addr().unwrap());
                 stream.shutdown(std::net::Shutdown::Both).unwrap();
                 false
             }
@@ -107,26 +94,22 @@ impl Server {
     }
 
     #[inline(always)]
-    fn handle_message(spaces: Arc<RwLock<Vec<Space>>>, message: &[u8], buf: &mut [u8]) -> usize {
+    fn handle_message(spaces: Arc<RwLock<Vec<Space>>>, message: &[u8], write_buffer: &mut [u8], offset: usize) -> usize {
         return match message[0] {
             actions::PING => {
-                buf[0] = actions::PING;
-                1
-            },
-            actions::CREATE_SPACE => {
-                let mut spaces = spaces.write().unwrap();
-                spaces.push(
-                    Space::new(SpaceEngineType::Cache, 256)
-                );
-                let l = spaces.len() - 1;
-                buf[0..2].copy_from_slice(&[actions::DONE, l as u8, ((l as u16) >> 8) as u8]);
+                write_buffer[offset..offset+3].copy_from_slice(&[0u8, 1u8, actions::PING]);
                 3
             },
+            actions::CREATE_SPACE => {
+                let i = utils::fastbytes::uint::u32(message);
+                write_msg(write_buffer, offset, &utils::fastbytes::uint::u32tob(i))
+            },
             actions::INSERT => {
-                0
+                2
             },
             _ => {
-                0
+                write_buffer[offset..offset+3].copy_from_slice(&[0u8, 0u8]);
+                2
             }
         }
     }
