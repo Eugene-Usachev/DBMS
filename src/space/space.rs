@@ -121,11 +121,11 @@ pub trait SpaceInterface {
     // endregion
 }
 
-pub enum SpaceEngineType {
-    Cache,
-    InMemory,
-    OnDisk,
-}
+pub type SpaceEngineType = u8;
+pub const CACHE: SpaceEngineType = 0;
+pub const IN_MEMORY: SpaceEngineType = 1;
+pub const ON_DISK: SpaceEngineType = 2;
+
 
 pub struct Space {
     pub data: Vec<RwLock<AHashMap<i32, Vec<u8>>>>,

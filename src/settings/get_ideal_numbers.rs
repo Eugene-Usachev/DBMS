@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::thread;
 use std::time::Instant;
-use crate::space::space::{Space, SpaceEngineType, SpaceInterface};
+use crate::space::space::{IN_MEMORY, Space, SpaceEngineType, SpaceInterface};
 
 pub fn test_ideal_numbers() {
     let mut total_count = 3_000_000;
@@ -36,7 +36,7 @@ struct TestResult {
 }
 
 fn test(total_count: u64, parallel_threads: u64, count_of_parts: u64) -> TestResult {
-    let space: Arc<Space> = Arc::new(Space::new(SpaceEngineType::InMemory, count_of_parts.clone() as usize));
+    let space: Arc<Space> = Arc::new(Space::new(IN_MEMORY, count_of_parts.clone() as usize));
     let mut joins = Vec::new();
 
     let time_insert = Instant::now();

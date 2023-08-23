@@ -9,26 +9,34 @@ use std::thread;
 use crate::server::cfg::Config;
 use crate::constants::actions;
 use crate::constants::size;
-use crate::space::space::{Space, SpaceEngineType, SpaceInterface};
+use crate::space::space::{Space, SpaceEngineType, SpaceInterface, CACHE};
 use crate::console::write_errors;
 use crate::utils;
 use crate::utils::fastbytes::uint;
 
-pub(crate) struct Server {
-    port: u16,
+pub struct ServerInner {
+    spaces: RwLock<Vec<Space>>,
+    spaces_names: RwLock<Vec<String>>,
+}
+
+pub struct Server {
+    inner: Arc<ServerInner>,
     is_running: bool,
     password: String,
-    spaces: Arc<RwLock<Vec<Space>>>,
+    port: u16,
 }
 
 impl Server {
     pub(crate) fn new() -> Self {
         let config = Config::new();
         Self {
+            inner: Arc::new(ServerInner{
+                spaces: RwLock::new(Vec::with_capacity(1)),
+                spaces_names: RwLock::new(Vec::with_capacity(1)),
+            }),
             port: config.port,
-            is_running: false,
             password: config.password,
-            spaces: Arc::new(RwLock::new(Vec::with_capacity(1))),
+            is_running: false,
         }
     }
 
@@ -46,21 +54,11 @@ impl Server {
         };
         println!("Server tcp listening on port {}", self.port);
         for stream in listener.incoming() {
-            let spaces = Arc::clone(&self.spaces);
+            let server= self.inner.clone();
             thread::spawn(move || {
                 match stream {
                     Ok(mut stream) => {
-                        let mut buf = [actions::PING;1];
-                        while match stream.read(&mut buf) {
-                            Ok(0) => false,
-                            Ok(size) => {
-                                stream.write(&buf).unwrap();
-                                true
-                            },
-                            Err(_) => {
-                              false
-                            }
-                        } {}
+                        Self::handle_client(server, stream);
                     }
                     Err(e) => {
                         println!("Error: {}", e);
@@ -71,7 +69,7 @@ impl Server {
     }
 
     #[inline(always)]
-    fn handle_client(spaces: Arc<RwLock<Vec<Space>>>, mut stream: TcpStream) {
+    fn handle_client(server: Arc<ServerInner>, mut stream: TcpStream) {
         let mut read_buffer = [0u8; size::READ_BUFFER_SIZE];
         let mut write_buffer = [0u8; size::WRITE_BUFFER_SIZE];
         while match stream.read(&mut read_buffer) {
@@ -93,8 +91,7 @@ impl Server {
                 //         write_offset = Self::handle_message(spaces, &read_buffer[offset..size as usize], &mut write_buffer, write_offset);
                 //     }
                 // }
-                let spaces = Arc::clone(&spaces);
-                let write_size = Self::handle_message(spaces, &read_buffer[..size], &mut write_buffer);
+                let write_size = Self::handle_message(server.clone(), &read_buffer[..size], &mut write_buffer);
                 stream.write_all(&mut write_buffer[..write_size]).expect("Can't write to stream");
                 true
             },
@@ -107,20 +104,87 @@ impl Server {
     }
 
     #[inline(always)]
-    fn handle_message(spaces: Arc<RwLock<Vec<Space>>>, message: &[u8], buf: &mut [u8]) -> usize {
+    fn handle_message(server: Arc<ServerInner>, message: &[u8], buf: &mut [u8]) -> usize {
         return match message[0] {
             actions::PING => {
                 buf[0] = actions::PING;
                 1
             },
             actions::CREATE_SPACE => {
-                let mut spaces = spaces.write().unwrap();
-                spaces.push(
-                    Space::new(SpaceEngineType::Cache, 256)
-                );
-                let l = spaces.len() - 1;
-                buf[0..2].copy_from_slice(&[actions::DONE, l as u8, ((l as u16) >> 8) as u8]);
-                3
+                let mut spaces;
+                let spaces_not_unwrapped = server.spaces.write();
+                match spaces_not_unwrapped {
+                    Ok(spaces_unwrapped) => {
+                        spaces = spaces_unwrapped;
+                    }
+                    Err(_) => {
+                        buf[0] = actions::INTERNAL_ERROR;
+                        return 1;
+                    }
+                }
+                if message.len() < 7 {
+                    buf[0] = actions::BAD_REQUEST;
+                    return 1;
+                }
+                let engine_type = message[1];
+                let size = uint::u32(&message[2..6]);
+                let name = String::from_utf8(message[6..].to_vec()).unwrap();
+                match engine_type {
+                    CACHE => {
+                        match server.spaces_names.write() {
+                        Ok(mut spaces_names) => {
+                            let mut i = 0;
+                            for exists_name in spaces_names.iter() {
+                                if *exists_name == name {
+                                    buf[0..3].copy_from_slice(&[actions::DONE, i as u8, ((i as u16) >> 8) as u8]);
+                                    return 3;
+                                }
+                                i += 1;
+                            }
+                            spaces_names.push(name);
+                        }
+                        Err(_) => {
+                            buf[0] = actions::INTERNAL_ERROR;
+                            return 1;
+                        }
+                    }
+                        spaces.push(
+                            Space::new(CACHE, size as usize)
+                        );
+                        let l = spaces.len() - 1;
+                        buf[0..3].copy_from_slice(&[actions::DONE, l as u8, ((l as u16) >> 8) as u8]);
+                        3
+                    }
+                    _ => {
+                        buf[0] = actions::BAD_REQUEST;
+                        return 1;
+                    }
+                }
+            },
+            actions::GET_SPACES_NAMES => {
+                let mut spaces_names;
+                let spaces_names_not_unwrapped = server.spaces_names.read();
+                match spaces_names_not_unwrapped {
+                    Ok(spaces_names_unwrapped) => {
+                        spaces_names = spaces_names_unwrapped;
+                    }
+                    Err(_) => {
+                        buf[0] = actions::INTERNAL_ERROR;
+                        return 1;
+                    }
+                }
+
+                buf[0] = actions::DONE;
+                let mut offset = 1;
+
+                for name in spaces_names.iter() {
+                    let l = name.len() as u16;
+                    buf[offset..offset+2].copy_from_slice(&[l as u8, ((l >> 8) as u8)]);
+                    buf[offset+2..offset+2+l as usize].copy_from_slice(name.as_bytes());
+                    offset += 2 + l as usize;
+                }
+
+                offset
             },
             actions::INSERT => {
                 0
