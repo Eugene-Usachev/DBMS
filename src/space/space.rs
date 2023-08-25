@@ -4,7 +4,7 @@ use ahash::AHashMap;
 pub trait SpaceInterface {
     // region get
 
-    fn get(&self, key: i32, index: usize) -> Option<Vec<u8>>;
+    fn get(&self, key: &String) -> Option<Vec<u8>>;
     fn get_many(&self, keys: &[String]) -> Vec<&Vec<u8>>;
     fn get_many_map(&self, keys: &[String]) -> AHashMap<String, &Vec<u8>>;
 
@@ -12,7 +12,7 @@ pub trait SpaceInterface {
 
     // region set
 
-    fn set(&self, key: i32, value: Vec<u8>, index: usize);
+    fn set(&self, key: String, value: Vec<u8>);
     /// sets value and returns an old value (or None)
     fn set_and_get(&mut self, key: &str, value: &Vec<u8>) -> Option<&Vec<u8>>;
     fn set_many(&mut self, map: AHashMap<String, &Vec<u8>>);
@@ -128,28 +128,34 @@ pub const ON_DISK: SpaceEngineType = 2;
 
 
 pub struct Space {
-    pub data: Vec<RwLock<AHashMap<i32, Vec<u8>>>>,
+    //pub data: Vec<RwLock<AHashMap<i32, Vec<u8>>>>,
+    pub data: RwLock<AHashMap<String, Vec<u8>>>,
     pub engine_type: SpaceEngineType,
-    pub size: usize,
+    //pub size: usize,
 }
 
 impl Space {
     pub fn new(engine_type: SpaceEngineType, size: usize) -> Space {
-        let mut data = Vec::with_capacity(size);
-        for _ in 0..size {
-            data.push(RwLock::new(AHashMap::new()));
-        }
+        //let mut data = Vec::with_capacity(size);
+        // for _ in 0..size {
+        //     data.push(RwLock::new(AHashMap::new()));
+        // }
+        let data = RwLock::new(AHashMap::new());
         Space {
             data,
-            size,
+            //size,
             engine_type,
         }
     }
 }
 
 impl SpaceInterface for Space {
-    fn get(&self, key: i32, index: usize) -> Option<Vec<u8>> {
-        match self.data[index % self.size].read().unwrap().get(&key) {
+    fn get(&self, key: &String) -> Option<Vec<u8>> {
+        // match self.data[index % self.size].read().unwrap().get(&key) {
+        //     Some(value) => Some(value.clone()),
+        //     None => None,
+        // }
+        match self.data.read().unwrap().get(key) {
             Some(value) => Some(value.clone()),
             None => None,
         }
@@ -163,8 +169,9 @@ impl SpaceInterface for Space {
         todo!()
     }
 
-    fn set(&self, key: i32, value: Vec<u8>, index: usize) {
-        self.data[index % self.size].write().unwrap().insert(key, value);
+    fn set(&self, key: String, value: Vec<u8>) {
+        //self.data[index % self.size].write().unwrap().insert(key, value);
+        self.data.write().unwrap().insert(key, value);
     }
 
     fn set_and_get(&mut self, key: &str, value: &Vec<u8>) -> Option<&Vec<u8>> {

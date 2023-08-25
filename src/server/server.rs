@@ -70,8 +70,8 @@ impl Server {
 
     #[inline(always)]
     fn handle_client(server: Arc<ServerInner>, mut stream: TcpStream) {
-        let mut read_buffer = [0u8; size::READ_BUFFER_SIZE];
-        let mut write_buffer = [0u8; size::WRITE_BUFFER_SIZE];
+        let mut read_buffer = [0u8; 4 * 1024];
+        let mut write_buffer = [0u8; 4 * 1024];
         while match stream.read(&mut read_buffer) {
             Ok(0) => false,
             Ok(size) => {
@@ -186,8 +186,75 @@ impl Server {
 
                 offset
             },
+            actions::GET => {
+                let mut spaces;
+                let spaces_not_unwrapped = server.spaces.read();
+                match spaces_not_unwrapped {
+                    Ok(spaces_unwrapped) => {
+                        spaces = spaces_unwrapped;
+                    }
+                    Err(_) => {
+                        buf[0] = actions::INTERNAL_ERROR;
+                        return 1;
+                    }
+                }
+
+                let key_size = uint::u16(&message[1..3]) as usize;
+                let key = String::from_utf8_lossy(&message[3..3+key_size]).to_string();
+                println!("key {}", key);
+                let space_id = uint::u16(&message[3+key_size..5+key_size]) as usize;
+
+                return match spaces.get(space_id) {
+                    Some(space) => {
+                        let res = space.get(&key);
+                        if res.is_none() {
+                            buf[0] = actions::NOT_FOUND;
+                            1
+                        } else {
+                            buf[0] = actions::DONE;
+                            let value = res.unwrap();
+                            println!("Value: {:?}, l {}", String::from_utf8_lossy(&value), value.len());
+                            let l = value.len() as u16;
+                            buf[1..3].copy_from_slice(&[l as u8, ((l >> 8) as u8)]);
+                            buf[3..3 + l as usize].copy_from_slice(&value);
+                            3 + l as usize
+                        }
+                    }
+                    None => {
+                        buf[0] = actions::SPACE_NOT_FOUND;
+                        1
+                    }
+                }
+            },
             actions::INSERT => {
-                0
+                let mut spaces;
+                let spaces_not_unwrapped = server.spaces.write();
+                match spaces_not_unwrapped {
+                    Ok(spaces_unwrapped) => {
+                        spaces = spaces_unwrapped;
+                    }
+                    Err(_) => {
+                        buf[0] = actions::INTERNAL_ERROR;
+                        return 1;
+                    }
+                }
+
+                let key_size = uint::u16(&message[1..3]) as usize;
+                let key = String::from_utf8_lossy(&message[3..3+key_size]).to_string();
+                let value_size = uint::u16(&message[3+key_size..5+key_size]) as usize;
+                let value = message[5+key_size..5+key_size+value_size].to_vec();
+                let space_id = uint::u16(&message[5+key_size+value_size..7+key_size+value_size]) as usize;
+                return match spaces.get(space_id) {
+                    Some(space) => {
+                        space.set(key, value);
+                        buf[0] = actions::DONE;
+                        1
+                    }
+                    None => {
+                        buf[0] = actions::SPACE_NOT_FOUND;
+                        1
+                    }
+                }
             },
             _ => {
                 0
