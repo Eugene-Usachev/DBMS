@@ -1,6 +1,6 @@
-use std::{env, io};
+use std::{env};
+
 use crate::console::input::input;
-use std::io::{BufRead, Write};
 
 pub struct Config {
     pub(crate) port: u16,

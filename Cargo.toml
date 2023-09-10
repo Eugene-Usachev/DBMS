@@ -9,3 +9,6 @@ edition = "2021"
 ahash = "0.8.3"
 indexmap = "2.0.0"
 num_cpus = "1.14.0"
+
+[profile.release]
+lto = true
