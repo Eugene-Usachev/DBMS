@@ -6,7 +6,7 @@ use std::thread;
 use crate::constants::actions;
 use crate::constants::size::{READ_BUFFER_SIZE, READ_BUFFER_SIZE_WITHOUT_SIZE, WRITE_BUFFER_SIZE};
 use crate::server::cfg::Config;
-use crate::space::space::{CACHE, Space, SpaceInterface};
+use crate::space::space::{CACHE, IN_MEMORY, ON_DISK, Space, SpaceInterface};
 use crate::utils::fastbytes::uint;
 use crate::utils::hash::get_hash::get_hash;
 
@@ -137,33 +137,29 @@ impl Server {
                         return write_msg(stream, write_buf, write_offset, &[actions::INTERNAL_ERROR]);
                     }
                 }
-                match engine_type {
-                    CACHE => {
-                        match storage.spaces_names.write() {
-                            Ok(mut spaces_names) => {
-                                let mut i = 0;
-                                for exists_name in spaces_names.iter() {
-                                    if *exists_name == name {
-                                        return write_msg(stream, write_buf, write_offset, &[actions::DONE, i as u8, ((i as u16) >> 8) as u8]);
-                                    }
-                                    i += 1;
-                                }
-                                spaces_names.push(name);
+                if engine_type != CACHE && engine_type != IN_MEMORY && engine_type != ON_DISK {
+                    return write_msg(stream, write_buf, write_offset, &[actions::BAD_REQUEST]);
+                }
+                match storage.spaces_names.write() {
+                    Ok(mut spaces_names) => {
+                        let mut i = 0;
+                        for exists_name in spaces_names.iter() {
+                            if *exists_name == name {
+                                return write_msg(stream, write_buf, write_offset, &[actions::DONE, i as u8, ((i as u16) >> 8) as u8]);
                             }
-                            Err(_) => {
-                                return write_msg(stream, write_buf, write_offset, &[actions::INTERNAL_ERROR]);
-                            }
+                            i += 1;
                         }
-                        spaces.push(
-                            Space::new(CACHE, size as usize)
-                        );
-                        let l = spaces.len() - 1;
-                        write_msg(stream, write_buf, write_offset, &[actions::DONE, l as u8, ((l as u16) >> 8) as u8])
-                    },
-                    _ => {
-                        write_msg(stream, write_buf, write_offset, &[actions::BAD_REQUEST])
+                        spaces_names.push(name);
+                    }
+                    Err(_) => {
+                        return write_msg(stream, write_buf, write_offset, &[actions::INTERNAL_ERROR]);
                     }
                 }
+                spaces.push(
+                    Space::new(engine_type, size as usize)
+                );
+                let l = spaces.len() - 1;
+                write_msg(stream, write_buf, write_offset, &[actions::DONE, l as u8, ((l as u16) >> 8) as u8])
             },
             actions::GET_SPACES_NAMES => {
                 let spaces_names;
