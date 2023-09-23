@@ -4,7 +4,7 @@ use ahash::AHashMap;
 pub trait SpaceInterface {
     // region get
 
-    fn get(&self, key: &String, key_hash: usize) -> Option<Vec<u8>>;
+    fn get(&self, key_hash: usize) -> Option<Vec<u8>>;
     // fn get_many(&self, keys: &[String]) -> Vec<&Vec<u8>>;
     // fn get_many_map(&self, keys: &[String]) -> AHashMap<String, &Vec<u8>>;
 
@@ -12,8 +12,8 @@ pub trait SpaceInterface {
 
     // region set and insert
 
-    fn set(&self, key: String, value: Vec<u8>, key_hash: usize);
-    fn insert(&self, key: String, value: Vec<u8>, key_hash: usize);
+    fn set(&self, value: Vec<u8>, key_hash: usize);
+    fn insert(&self, value: Vec<u8>, key_hash: usize);
     // sets value and returns an old value (or None)
     // fn set_and_get(&mut self, key: &str, value: &Vec<u8>) -> Option<&Vec<u8>>;
     // fn set_many(&mut self, map: AHashMap<String, &Vec<u8>>);
@@ -27,7 +27,7 @@ pub trait SpaceInterface {
     //
     // region delete
     //
-    fn delete(&self, key: &String, key_hash: usize);
+    fn delete(&self, key_hash: usize);
     // fn delete_and_get(&mut self, key: &str) -> Option<&Vec<u8>>;
     // fn delete_many(&mut self, keys: &[String]);
     // fn delete_and_get_many(&mut self, keys: &[String]) -> Vec<&Vec<u8>>;
@@ -128,7 +128,7 @@ pub const IN_MEMORY: SpaceEngineType = 1;
 pub const ON_DISK: SpaceEngineType = 2;
 
 pub struct Space {
-    pub data: Vec<RwLock<AHashMap<String, Vec<u8>>>>,
+    pub data: Box<[RwLock<AHashMap<usize, Vec<u8>>>]>,
     //pub data: RwLock<AHashMap<String, Vec<u8>>>,
     pub engine_type: SpaceEngineType,
     pub size: usize,
@@ -142,7 +142,7 @@ impl Space {
         }
         //let data = RwLock::new(AHashMap::new());
         Space {
-            data,
+            data: data.into_boxed_slice(),
             engine_type,
             size
         }
@@ -150,23 +150,15 @@ impl Space {
 }
 
 impl SpaceInterface for Space {
-    fn get(&self, key: &String, key_hash: usize) -> Option<Vec<u8>> {
-        match self.data[key_hash % self.size].read().unwrap().get(key) {
+    fn get(&self,  key_hash: usize) -> Option<Vec<u8>> {
+        match self.data[key_hash % self.size].read().unwrap().get(&key_hash) {
             Some(value) => Some(value.clone()),
             None => None,
         }
-        // match self.data.read().unwrap().get(key) {
-        //     Some(value) => Some(value.clone()),
-        //     None => None,
-        // }
     }
 
-    fn delete(&self, key: &String, key_hash: usize) {
-        self.data[key_hash % self.size].write().unwrap().remove(key);
-        // match self.data.read().unwrap().get(key) {
-        //     Some(value) => Some(value.clone()),
-        //     None => None,
-        // }
+    fn delete(&self,  key_hash: usize) {
+        self.data[key_hash % self.size].write().unwrap().remove(&key_hash);
     }
 
     // fn get_many(&self, keys: &[String]) -> Vec<&Vec<u8>> {
@@ -177,13 +169,12 @@ impl SpaceInterface for Space {
     //     todo!()
     // }
 
-    fn set(&self, key: String, value: Vec<u8>, key_hash: usize) {
-        self.data[key_hash % self.size].write().unwrap().insert(key, value);
-        // self.data.write().unwrap().insert(key, value);
+    fn set(&self, value: Vec<u8>, key_hash: usize) {
+        self.data[key_hash % self.size].write().unwrap().insert(key_hash, value);
     }
 
-    fn insert(&self, key: String, value: Vec<u8>, key_hash: usize) {
-        self.data[key_hash % self.size].write().unwrap().entry(key).or_insert(value);
+    fn insert(&self, value: Vec<u8>, key_hash: usize) {
+        self.data[key_hash % self.size].write().unwrap().entry(key_hash).or_insert(value);
     }
 
     // fn set_and_get(&mut self, key: &str, value: &Vec<u8>) -> Option<&Vec<u8>> {

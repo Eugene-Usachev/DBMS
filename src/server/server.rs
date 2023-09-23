@@ -196,11 +196,10 @@ impl Server {
                         return write_msg(stream, write_buf, write_offset, &[actions::INTERNAL_ERROR]);
                     }
                 }
-                let key = String::from_utf8_lossy(&message[3..]).to_string();
                 let hash = get_hash(&message[3..]) as usize;
                 match spaces.get(uint::u16(&message[1..3]) as usize) {
                     Some(space) => {
-                        let res = space.get(&key, hash);
+                        let res = space.get(hash);
                         if res.is_none() {
                             return write_msg(stream, write_buf, write_offset, &[actions::NOT_FOUND]);
                         }
@@ -228,12 +227,11 @@ impl Server {
                     }
                 }
                 let key_size = uint::u16(&message[3..5]) as usize;
-                let key = String::from_utf8_lossy(&message[5..5+key_size]).to_string();
                 let hash = get_hash(&message[5..5+key_size]) as usize;
                 let value = message[5+key_size..].to_vec();
                 return match spaces.get(uint::u16(&message[1..3]) as usize) {
                     Some(space) => {
-                        space.insert(key, value, hash);
+                        space.insert(value, hash);
                         write_msg(stream, write_buf, write_offset, &[actions::DONE])
                     }
                     None => {
@@ -253,12 +251,11 @@ impl Server {
                     }
                 }
                 let key_size = uint::u16(&message[3..5]) as usize;
-                let key = String::from_utf8_lossy(&message[5..5+key_size]).to_string();
                 let hash = get_hash(&message[5..5+key_size]) as usize;
                 let value = message[5+key_size..].to_vec();
                 return match spaces.get(uint::u16(&message[1..3]) as usize) {
                     Some(space) => {
-                        space.set(key, value, hash);
+                        space.set(value, hash);
                         write_msg(stream, write_buf, write_offset, &[actions::DONE])
                     }
                     None => {
@@ -277,11 +274,10 @@ impl Server {
                         return write_msg(stream, write_buf, write_offset, &[actions::INTERNAL_ERROR]);
                     }
                 }
-                let key = String::from_utf8_lossy(&message[3..]).to_string();
                 let hash = get_hash(&message[3..]) as usize;
                 match spaces.get(uint::u16(&message[1..3]) as usize) {
                     Some(space) => {
-                        space.delete(&key, hash);
+                        space.delete(hash);
                         write_msg(stream, write_buf, write_offset, &[actions::DONE])
                     }
                     None => {
