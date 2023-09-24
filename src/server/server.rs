@@ -1,19 +1,16 @@
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc};
 use std::thread;
 
 use crate::constants::actions;
 use crate::constants::size::{READ_BUFFER_SIZE, READ_BUFFER_SIZE_WITHOUT_SIZE, WRITE_BUFFER_SIZE};
 use crate::server::cfg::Config;
-use crate::space::space::{CACHE, IN_MEMORY, ON_DISK, Space, SpaceInterface};
+use crate::space::cache_space::CacheSpace;
+use crate::space::space::{SpaceInterface};
+use crate::space::in_memory_space::InMemorySpace;
+use crate::storage::Storage;
 use crate::utils::fastbytes::uint;
-use crate::utils::hash::get_hash::get_hash;
-
-pub struct Storage {
-    spaces: RwLock<Vec<Space>>,
-    spaces_names: RwLock<Vec<String>>,
-}
 
 pub struct Server {
     storage: Arc<Storage>,
@@ -25,11 +22,10 @@ pub struct Server {
 impl Server {
     pub(crate) fn new() -> Self {
         let config = Config::new();
+        let storage = Arc::new(Storage::new());
+        Storage::start_cache_clearer(storage.clone());
         Self {
-            storage: Arc::new(Storage{
-                spaces: RwLock::new(Vec::with_capacity(1)),
-                spaces_names: RwLock::new(Vec::with_capacity(1)),
-            }),
+            storage: storage.clone(),
             port: config.port,
             password: config.password,
             is_running: false,
@@ -38,7 +34,7 @@ impl Server {
 
     pub(crate) fn run(&mut self) {
         if self.is_running {
-           return;
+            return;
         }
         self.is_running = true;
         let listener_ = TcpListener::bind(format!("dbms:{}", self.port));
@@ -120,26 +116,13 @@ impl Server {
             actions::PING => {
                 write_msg(stream, write_buf, write_offset, &[actions::PING])
             },
-            actions::CREATE_SPACE => {
+            actions::CREATE_SPACE_IN_MEMORY => {
+                if message.len() < 4 {
+                    return write_msg(stream, write_buf, write_offset, &[actions::BAD_REQUEST]);
+                }
                 let mut spaces;
-                let engine_type = message[1];
-                let size = uint::u16(&message[2..4]);
-                let name = String::from_utf8(message[4..].to_vec()).unwrap();
-                if message.len() < 7 {
-                    return write_msg(stream, write_buf, write_offset, &[actions::BAD_REQUEST]);
-                }
-                let spaces_not_unwrapped = storage.spaces.write();
-                match spaces_not_unwrapped {
-                    Ok(spaces_unwrapped) => {
-                        spaces = spaces_unwrapped;
-                    }
-                    Err(_) => {
-                        return write_msg(stream, write_buf, write_offset, &[actions::INTERNAL_ERROR]);
-                    }
-                }
-                if engine_type != CACHE && engine_type != IN_MEMORY && engine_type != ON_DISK {
-                    return write_msg(stream, write_buf, write_offset, &[actions::BAD_REQUEST]);
-                }
+                let size = uint::u16(&message[1..3]);
+                let name = String::from_utf8(message[3..].to_vec()).unwrap();
                 match storage.spaces_names.write() {
                     Ok(mut spaces_names) => {
                         let mut i = 0;
@@ -155,12 +138,61 @@ impl Server {
                         return write_msg(stream, write_buf, write_offset, &[actions::INTERNAL_ERROR]);
                     }
                 }
+                let spaces_not_unwrapped = storage.spaces.write();
+                match spaces_not_unwrapped {
+                    Ok(spaces_unwrapped) => {
+                        spaces = spaces_unwrapped;
+                    }
+                    Err(_) => {
+                        return write_msg(stream, write_buf, write_offset, &[actions::INTERNAL_ERROR]);
+                    }
+                }
+                let l = spaces.len();
                 spaces.push(
-                    Space::new(engine_type, size as usize)
+                    Box::new(InMemorySpace::new(size as usize))
                 );
-                let l = spaces.len() - 1;
                 write_msg(stream, write_buf, write_offset, &[actions::DONE, l as u8, ((l as u16) >> 8) as u8])
-            },
+            }
+            actions::CREATE_SPACE_CACHE => {
+                if message.len() < 8 {
+                    return write_msg(stream, write_buf, write_offset, &[actions::BAD_REQUEST]);
+                }
+                let mut spaces;
+                let size = uint::u16(&message[1..3]);
+                let cache_duration = uint::u64(&message[3..11]);
+                let name = String::from_utf8(message[11..].to_vec()).unwrap();
+                match storage.spaces_names.write() {
+                    Ok(mut spaces_names) => {
+                        let mut i = 0;
+                        for exists_name in spaces_names.iter() {
+                            if *exists_name == name {
+                                return write_msg(stream, write_buf, write_offset, &[actions::DONE, i as u8, ((i as u16) >> 8) as u8]);
+                            }
+                            i += 1;
+                        }
+                        spaces_names.push(name);
+                    }
+                    Err(_) => {
+                        return write_msg(stream, write_buf, write_offset, &[actions::INTERNAL_ERROR]);
+                    }
+                }
+                let spaces_not_unwrapped = storage.spaces.write();
+                match spaces_not_unwrapped {
+                    Ok(spaces_unwrapped) => {
+                        spaces = spaces_unwrapped;
+                    }
+                    Err(_) => {
+                        return write_msg(stream, write_buf, write_offset, &[actions::INTERNAL_ERROR]);
+                    }
+                }
+
+                let l = spaces.len();
+                spaces.push(
+                    Box::new(CacheSpace::new(size as usize, cache_duration))
+                );
+                storage.cache_spaces_indexes.write().unwrap().push(l);
+                write_msg(stream, write_buf, write_offset, &[actions::DONE, l as u8, ((l as u16) >> 8) as u8])
+            }
             actions::GET_SPACES_NAMES => {
                 let spaces_names;
                 let spaces_names_not_unwrapped = storage.spaces_names.read();
@@ -196,10 +228,10 @@ impl Server {
                         return write_msg(stream, write_buf, write_offset, &[actions::INTERNAL_ERROR]);
                     }
                 }
-                let hash = get_hash(&message[3..]) as usize;
+                let key = &message[3..].to_vec();
                 match spaces.get(uint::u16(&message[1..3]) as usize) {
                     Some(space) => {
-                        let res = space.get(hash);
+                        let res = space.get(key);
                         if res.is_none() {
                             return write_msg(stream, write_buf, write_offset, &[actions::NOT_FOUND]);
                         }
@@ -227,11 +259,11 @@ impl Server {
                     }
                 }
                 let key_size = uint::u16(&message[3..5]) as usize;
-                let hash = get_hash(&message[5..5+key_size]) as usize;
+                let key = message[5..5+key_size].to_vec();
                 let value = message[5+key_size..].to_vec();
                 return match spaces.get(uint::u16(&message[1..3]) as usize) {
                     Some(space) => {
-                        space.insert(value, hash);
+                        space.insert(value, key);
                         write_msg(stream, write_buf, write_offset, &[actions::DONE])
                     }
                     None => {
@@ -251,11 +283,11 @@ impl Server {
                     }
                 }
                 let key_size = uint::u16(&message[3..5]) as usize;
-                let hash = get_hash(&message[5..5+key_size]) as usize;
+                let key = message[5..5+key_size].to_vec();
                 let value = message[5+key_size..].to_vec();
                 return match spaces.get(uint::u16(&message[1..3]) as usize) {
                     Some(space) => {
-                        space.set(value, hash);
+                        space.set(value, key);
                         write_msg(stream, write_buf, write_offset, &[actions::DONE])
                     }
                     None => {
@@ -274,10 +306,10 @@ impl Server {
                         return write_msg(stream, write_buf, write_offset, &[actions::INTERNAL_ERROR]);
                     }
                 }
-                let hash = get_hash(&message[3..]) as usize;
+                let key = &message[3..].to_vec();
                 match spaces.get(uint::u16(&message[1..3]) as usize) {
                     Some(space) => {
-                        space.delete(hash);
+                        space.delete(key);
                         write_msg(stream, write_buf, write_offset, &[actions::DONE])
                     }
                     None => {
