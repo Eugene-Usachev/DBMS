@@ -15,7 +15,8 @@ impl Config {
                 value.parse().unwrap_or(10000)
             },
             Err(_) => {
-                input("Please enter the port (default: 10000): ", 10000)
+                println!("The port was not set using the environment variable \"PORT\", setting it to 10000");
+                10000
             }
         };
 
@@ -25,7 +26,8 @@ impl Config {
                 value
             },
             Err(_) => {
-                input("Please enter the password (all machines in the cluster must have the same password): ", "".to_string())
+                println!("The password was not set using the environment variable \"PASSWORD\", setting it to \"\" (empty string)");
+                String::new()
             }
         };
 

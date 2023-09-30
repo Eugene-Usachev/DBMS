@@ -9,7 +9,7 @@ use crate::server::cfg::Config;
 use crate::space::cache_space::CacheSpace;
 use crate::space::space::{SpaceInterface};
 use crate::space::in_memory_space::InMemorySpace;
-use crate::storage::Storage;
+use crate::storage::storage::Storage;
 use crate::utils::fastbytes::uint;
 
 pub struct Server {
@@ -23,7 +23,7 @@ impl Server {
     pub(crate) fn new() -> Self {
         let config = Config::new();
         let storage = Arc::new(Storage::new());
-        Storage::start_cache_clearer(storage.clone());
+        Storage::init(storage.clone());
         Self {
             storage: storage.clone(),
             port: config.port,
@@ -132,7 +132,7 @@ impl Server {
                             }
                             i += 1;
                         }
-                        spaces_names.push(name);
+                        spaces_names.push(name.clone());
                     }
                     Err(_) => {
                         return write_msg(stream, write_buf, write_offset, &[actions::INTERNAL_ERROR]);
@@ -149,7 +149,7 @@ impl Server {
                 }
                 let l = spaces.len();
                 spaces.push(
-                    Box::new(InMemorySpace::new(size as usize))
+                    Box::new(InMemorySpace::new(size as usize, name, 0))
                 );
                 write_msg(stream, write_buf, write_offset, &[actions::DONE, l as u8, ((l as u16) >> 8) as u8])
             }
@@ -170,7 +170,7 @@ impl Server {
                             }
                             i += 1;
                         }
-                        spaces_names.push(name);
+                        spaces_names.push(name.clone());
                     }
                     Err(_) => {
                         return write_msg(stream, write_buf, write_offset, &[actions::INTERNAL_ERROR]);
@@ -188,7 +188,7 @@ impl Server {
 
                 let l = spaces.len();
                 spaces.push(
-                    Box::new(CacheSpace::new(size as usize, cache_duration))
+                    Box::new(CacheSpace::new(size as usize, cache_duration, name, 0))
                 );
                 storage.cache_spaces_indexes.write().unwrap().push(l);
                 write_msg(stream, write_buf, write_offset, &[actions::DONE, l as u8, ((l as u16) >> 8) as u8])
@@ -263,7 +263,7 @@ impl Server {
                 let value = message[5+key_size..].to_vec();
                 return match spaces.get(uint::u16(&message[1..3]) as usize) {
                     Some(space) => {
-                        space.insert(value, key);
+                        space.insert(key, value);
                         write_msg(stream, write_buf, write_offset, &[actions::DONE])
                     }
                     None => {
@@ -287,7 +287,7 @@ impl Server {
                 let value = message[5+key_size..].to_vec();
                 return match spaces.get(uint::u16(&message[1..3]) as usize) {
                     Some(space) => {
-                        space.set(value, key);
+                        space.set(key, value);
                         write_msg(stream, write_buf, write_offset, &[actions::DONE])
                     }
                     None => {

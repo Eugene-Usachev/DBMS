@@ -1,0 +1,1 @@
+pub const PERSISTENCE_DIR: &str = "data";

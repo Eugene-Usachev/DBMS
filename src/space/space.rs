@@ -3,10 +3,11 @@ pub trait SpaceInterface {
     fn get_and_reset_cache_time(&self, key: &Vec<u8>) -> Option<Vec<u8>>;
     fn set(&self, key: Vec<u8>, value: Vec<u8>);
     fn insert(&self, key: Vec<u8>, value: Vec<u8>);
-
     fn delete(&self, key: &Vec<u8>);
-
     fn count(&self) -> u64;
+
+    fn dump(&self);
+    fn rise(&self);
 
     fn invalid_cache(&self);
 }
