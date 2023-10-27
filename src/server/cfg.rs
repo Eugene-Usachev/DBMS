@@ -1,7 +1,5 @@
 use std::{env};
 
-use crate::console::input::input;
-
 pub struct Config {
     pub(crate) port: u16,
     pub(crate) password: String,
