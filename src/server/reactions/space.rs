@@ -1,8 +1,8 @@
-use std::io::Write;
-use std::net::TcpStream;
+use std::ops::{DerefMut};
 use std::sync::Arc;
 use crate::constants::actions;
 use crate::server::server::write_msg;
+use crate::server::stream_trait::Stream;
 use crate::space::cache_space::CacheSpace;
 use crate::space::in_memory_space::InMemorySpace;
 use crate::space::space;
@@ -10,7 +10,7 @@ use crate::storage::storage::Storage;
 use crate::utils::fastbytes::uint;
 
 #[inline(always)]
-pub fn create_space_in_memory(stream: &mut TcpStream, storage: Arc<Storage>, message: &[u8], write_buf: &mut [u8], write_offset: usize, log_buf: &mut [u8], log_buf_offset: &mut usize) -> usize {
+pub fn create_space_in_memory(stream: &mut impl Stream, storage: Arc<Storage>, message: &[u8], write_buf: &mut [u8], write_offset: usize, log_buf: &mut [u8], log_buf_offset: &mut usize) -> usize {
     if message.len() < 5 {
         return write_msg(stream, write_buf, write_offset, &[actions::BAD_REQUEST]);
     }
@@ -46,7 +46,7 @@ pub fn create_space_in_memory(stream: &mut TcpStream, storage: Arc<Storage>, mes
             buf[1] = name_len as u8;
             buf[2] = (name_len >> 8) as u8;
             buf[3..3 + name_len].copy_from_slice(name.as_bytes());
-            file.write_all(&buf[..2 + name_len]).expect("Can't write to main storage file");
+            Stream::write_all(file.deref_mut(), &buf[..2 + name_len]).expect("Can't write to main storage file");
 
             spaces_names.push(name.clone());
         }
@@ -71,7 +71,7 @@ pub fn create_space_in_memory(stream: &mut TcpStream, storage: Arc<Storage>, mes
 }
 
 #[inline(always)]
-pub fn create_space_cache(stream: &mut TcpStream, storage: Arc<Storage>, message: &[u8], write_buf: &mut [u8], write_offset: usize, log_buf: &mut [u8], log_buf_offset: &mut usize) -> usize {
+pub fn create_space_cache(stream: &mut impl Stream, storage: Arc<Storage>, message: &[u8], write_buf: &mut [u8], write_offset: usize, log_buf: &mut [u8], log_buf_offset: &mut usize) -> usize {
     if message.len() < 9 {
         return write_msg(stream, write_buf, write_offset, &[actions::BAD_REQUEST]);
     }
@@ -109,7 +109,7 @@ pub fn create_space_cache(stream: &mut TcpStream, storage: Arc<Storage>, message
             buf[1] = name_len as u8;
             buf[2] = (name_len >> 8) as u8;
             buf[3..3 + name_len].copy_from_slice(name.as_bytes());
-            file.write_all(&buf[..2 + name_len]).expect("Can't write to main storage file");
+            Stream::write_all(file.deref_mut(), &buf[..2 + name_len]).expect("Can't write to main storage file");
 
             spaces_names.push(name.clone());
         }
@@ -136,7 +136,7 @@ pub fn create_space_cache(stream: &mut TcpStream, storage: Arc<Storage>, message
 }
 
 #[inline(always)]
-pub fn get_spaces_names(stream: &mut TcpStream, storage: Arc<Storage>, write_buf: &mut [u8], write_offset: usize) -> usize {
+pub fn get_spaces_names(stream: &mut impl Stream, storage: Arc<Storage>, write_buf: &mut [u8], write_offset: usize) -> usize {
     let spaces_names;
     let spaces_names_not_unwrapped = storage.spaces_names.read();
     match spaces_names_not_unwrapped {

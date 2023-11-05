@@ -1,5 +1,5 @@
-use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
+use std::ops::{DerefMut};
 use std::sync::{Arc};
 use std::thread;
 
@@ -12,6 +12,7 @@ use crate::utils::fastbytes::uint;
 use crate::server::reactions::status::{ping};
 use crate::server::reactions::space::{create_space_cache, create_space_in_memory, get_spaces_names};
 use crate::server::reactions::work_with_spaces::{delete, get, get_and_reset_cache_time, insert, set};
+use crate::server::stream_trait::Stream;
 
 pub struct Server {
     storage: Arc<Storage>,
@@ -68,12 +69,12 @@ impl Server {
 
         let mut log_buffer = [0u8; WRITE_BUFFER_SIZE];
         let mut log_buffer_offset = 0;
-        while match stream.read(&mut read_buffer) {
+        while match <TcpStream as Stream>::read(&mut stream, &mut read_buffer) {
             Ok(0) => false,
             Ok(mut pipe_size) => {
                 let real_pipe_size = uint::u32(&read_buffer[0..4]);
                 while real_pipe_size != pipe_size as u32 {
-                    match stream.read(&mut read_buffer[pipe_size..]) {
+                    match Stream::read(&mut stream, &mut read_buffer[pipe_size..]) {
                         Ok(0) => {
                             break;
                         }
@@ -103,10 +104,9 @@ impl Server {
                         offset += size as usize;
                     }
                 }
-                stream.write_all(&write_buffer[..write_offset]).expect("Can't write to stream");
+                Stream::write_all(&mut stream, &write_buffer[..write_offset]).expect("Can't write to stream");
                 if log_buffer_offset > 0 {
-                    //println!("{log_buffer_offset} len is {}", log_buffer[..log_buffer_offset].len());
-                    storage.log_file.lock().unwrap().write_all(&log_buffer[..log_buffer_offset]).expect("Can't write to log file");
+                    Stream::write_all(storage.log_file.lock().unwrap().deref_mut(), &log_buffer[..log_buffer_offset]).expect("Can't write to log file");
                     log_buffer_offset = 0;
                 }
                 true
@@ -120,7 +120,7 @@ impl Server {
     }
 
     #[inline(always)]
-    fn handle_message(stream: &mut TcpStream, storage: Arc<Storage>, message: &[u8], write_buf: &mut [u8], write_offset: usize, log_buf: &mut [u8], log_buf_offset: &mut usize) -> usize {
+    fn handle_message(stream: &mut impl Stream, storage: Arc<Storage>, message: &[u8], write_buf: &mut [u8], write_offset: usize, log_buf: &mut [u8], log_buf_offset: &mut usize) -> usize {
         return match message[0] {
             actions::PING => ping(stream, write_buf, write_offset),
 
@@ -141,11 +141,11 @@ impl Server {
 }
 
 #[inline(always)]
-pub(crate) fn write_msg(stream: &mut TcpStream, buf: &mut [u8], mut offset: usize, msg: &[u8]) -> usize {
+pub(crate) fn write_msg(stream: &mut impl Stream, buf: &mut [u8], mut offset: usize, msg: &[u8]) -> usize {
     let l = msg.len();
 
     if l + offset > READ_BUFFER_SIZE_WITHOUT_SIZE {
-        stream.write(&buf).expect("Can't write to stream");
+        stream.write_all(&buf).expect("Can't write to stream");
         offset = 0; // We flushed the buffer. Now we need to start from the beginning, but we still are responding for the same pipe.
     }
 
@@ -164,7 +164,7 @@ pub(crate) fn write_msg(stream: &mut TcpStream, buf: &mut [u8], mut offset: usiz
     while l > can_write {
         buf[offset..offset+can_write].copy_from_slice(&msg[written..written + can_write]);
         written += can_write;
-        stream.write(&buf).expect("Can't write to stream");
+        stream.write_all(&buf).expect("Can't write to stream");
         offset = 0;
         can_write = READ_BUFFER_SIZE;
     }
@@ -174,11 +174,11 @@ pub(crate) fn write_msg(stream: &mut TcpStream, buf: &mut [u8], mut offset: usiz
 }
 
 #[inline(always)]
-pub(crate) fn write_msg_with_status_separate(stream: &mut TcpStream, buf: &mut [u8], mut offset: usize, status: u8, msg: &[u8]) -> usize {
+pub(crate) fn write_msg_with_status_separate(stream: &mut impl Stream, buf: &mut [u8], mut offset: usize, status: u8, msg: &[u8]) -> usize {
     let l = msg.len() + 1;
 
     if l + offset > READ_BUFFER_SIZE_WITHOUT_SIZE {
-        stream.write(&buf).expect("Can't write to stream");
+        stream.write_all(&buf).expect("Can't write to stream");
         offset = 0; // We flushed the buffer. Now we need to start from the beginning, but we still are responding for the same pipe.
     }
 
@@ -200,7 +200,7 @@ pub(crate) fn write_msg_with_status_separate(stream: &mut TcpStream, buf: &mut [
     while l > can_write {
         buf[offset..offset+can_write].copy_from_slice(&msg[written..written + can_write]);
         written += can_write;
-        stream.write(&buf).expect("Can't write to stream");
+        stream.write_all(&buf).expect("Can't write to stream");
         offset = 0;
         can_write = READ_BUFFER_SIZE;
     }
