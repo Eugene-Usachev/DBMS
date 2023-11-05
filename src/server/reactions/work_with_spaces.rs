@@ -1,12 +1,12 @@
-use std::net::TcpStream;
 use std::sync::Arc;
 use crate::constants::actions;
 use crate::server::server::{write_msg, write_msg_with_status_separate};
+use crate::server::stream_trait::Stream;
 use crate::storage::storage::Storage;
 use crate::utils::fastbytes::uint;
 
 #[inline(always)]
-pub fn get(stream: &mut TcpStream, storage: Arc<Storage>, message: &[u8], write_buf: &mut [u8], write_offset: usize) -> usize {
+pub fn get(stream: &mut impl Stream, storage: Arc<Storage>, message: &[u8], write_buf: &mut [u8], write_offset: usize) -> usize {
     let spaces;
     let spaces_not_unwrapped = storage.spaces.read();
     match spaces_not_unwrapped {
@@ -33,7 +33,7 @@ pub fn get(stream: &mut TcpStream, storage: Arc<Storage>, message: &[u8], write_
 }
 
 #[inline(always)]
-pub fn get_and_reset_cache_time(stream: &mut TcpStream, storage: Arc<Storage>, message: &[u8], write_buf: &mut [u8], write_offset: usize) -> usize {
+pub fn get_and_reset_cache_time(stream: &mut impl Stream, storage: Arc<Storage>, message: &[u8], write_buf: &mut [u8], write_offset: usize) -> usize {
     let spaces;
     let spaces_not_unwrapped = storage.spaces.read();
     match spaces_not_unwrapped {
@@ -60,7 +60,7 @@ pub fn get_and_reset_cache_time(stream: &mut TcpStream, storage: Arc<Storage>, m
 }
 
 #[inline(always)]
-pub fn insert(stream: &mut TcpStream, storage: Arc<Storage>, message: &[u8], write_buf: &mut [u8], write_offset: usize, log_buffer: &mut [u8], log_buffer_offset: &mut usize) -> usize {
+pub fn insert(stream: &mut impl Stream, storage: Arc<Storage>, message: &[u8], write_buf: &mut [u8], write_offset: usize, log_buffer: &mut [u8], log_buffer_offset: &mut usize) -> usize {
     let spaces;
     let spaces_not_unwrapped = storage.spaces.read();
     match spaces_not_unwrapped {
@@ -86,7 +86,7 @@ pub fn insert(stream: &mut TcpStream, storage: Arc<Storage>, message: &[u8], wri
 }
 
 #[inline(always)]
-pub fn set(stream: &mut TcpStream, storage: Arc<Storage>, message: &[u8], write_buf: &mut [u8], write_offset: usize, log_buffer: &mut [u8], log_buffer_offset: &mut usize) -> usize {
+pub fn set(stream: &mut impl Stream, storage: Arc<Storage>, message: &[u8], write_buf: &mut [u8], write_offset: usize, log_buffer: &mut [u8], log_buffer_offset: &mut usize) -> usize {
     let spaces;
     let spaces_not_unwrapped = storage.spaces.read();
     match spaces_not_unwrapped {
@@ -112,7 +112,7 @@ pub fn set(stream: &mut TcpStream, storage: Arc<Storage>, message: &[u8], write_
 }
 
 #[inline(always)]
-pub fn delete(stream: &mut TcpStream, storage: Arc<Storage>, message: &[u8], write_buf: &mut [u8], write_offset: usize, log_buffer: &mut [u8], log_buffer_offset: &mut usize) -> usize {
+pub fn delete(stream: &mut impl Stream, storage: Arc<Storage>, message: &[u8], write_buf: &mut [u8], write_offset: usize, log_buffer: &mut [u8], log_buffer_offset: &mut usize) -> usize {
     let spaces;
     let spaces_not_unwrapped = storage.spaces.read();
     match spaces_not_unwrapped {

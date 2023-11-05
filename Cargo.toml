@@ -6,9 +6,10 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-ahash = "0.8.3"
-indexmap = "2.0.0"
+ahash = "0.8.6"
+indexmap = "2.0.2"
 num_cpus = "1.14.0"
+dashmap = "5.5.3"
 
 [profile.release]
 lto = true

@@ -278,7 +278,7 @@ impl SpaceInterface for InMemorySpace {
                 value_offset = offset;
                 offset += vl as usize;
 
-                self.insert_(chunk[key_offset..key_offset+kl as usize].to_vec(), chunk[value_offset..value_offset+vl as usize].to_vec());
+                self.insert_(chunk[key_offset..key_offset+kl as usize].to_vec(), chunk[value_offset..offset].to_vec());
             }
         }
     }
