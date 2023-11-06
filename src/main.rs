@@ -5,6 +5,7 @@ mod space;
 mod settings;
 mod utils;
 mod storage;
+mod disk_storage;
 
 use crate::console::start_message;
 use crate::server::server::Server;

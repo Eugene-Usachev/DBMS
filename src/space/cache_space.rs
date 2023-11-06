@@ -2,7 +2,7 @@ use std::sync::atomic::AtomicU32;
 use std::sync::atomic::Ordering::SeqCst;
 use std::sync::{RwLock};
 use ahash::AHashMap;
-use crate::space::space::SpaceInterface;
+use crate::space::space::Space;
 use crate::storage::storage::NOW_MINUTES;
 use crate::utils::hash::get_hash::get_hash;
 
@@ -33,15 +33,9 @@ impl CacheSpace {
             is_it_logging
         }
     }
-
-    #[inline(always)]
-    fn insert_with_log(&self, key: Vec<u8>, value: Vec<u8>, log_buffer: &mut [u8], log_buffer_offset: &mut usize) {
-        let mut offset = *log_buffer_offset;
-
-    }
 }
 
-impl SpaceInterface for CacheSpace {
+impl Space for CacheSpace {
     #[inline(always)]
     fn get(&self, key: &[u8]) -> Option<Vec<u8>> {
         match self.data[get_hash(key) % self.size].read().unwrap().get(key) {
@@ -62,17 +56,17 @@ impl SpaceInterface for CacheSpace {
     }
 
     #[inline(always)]
-    fn set(&self, key: Vec<u8>, value: Vec<u8>, log_buffer: &mut [u8], log_buffer_offset: &mut usize) {
+    fn set(&self, key: Vec<u8>, value: Vec<u8>, _log_buffer: &mut [u8], _log_buffer_offset: &mut usize) {
         self.data[get_hash(&key) % self.size].write().unwrap().insert(key, (NOW_MINUTES.load(SeqCst), value));
     }
 
     #[inline(always)]
-    fn insert(&self, key: Vec<u8>, value: Vec<u8>, log_buffer: &mut [u8], log_buffer_offset: &mut usize) {
+    fn insert(&self, key: Vec<u8>, value: Vec<u8>, _log_buffer: &mut [u8], _log_buffer_offset: &mut usize) {
         self.data[get_hash(&key) % self.size].write().unwrap().entry(key).or_insert((NOW_MINUTES.load(SeqCst), value));
     }
 
     #[inline(always)]
-    fn delete(&self, key: Vec<u8>, log_buffer: &mut [u8], log_buffer_offset: &mut usize) {
+    fn delete(&self, key: Vec<u8>, _log_buffer: &mut [u8], _log_buffer_offset: &mut usize) {
         self.data[get_hash(&key) % self.size].write().unwrap().remove(&key);
     }
 
@@ -86,9 +80,6 @@ impl SpaceInterface for CacheSpace {
         count as u64
     }
 
-    fn dump(&self) {}
-    fn rise(&self) {}
-
     #[inline(always)]
     fn invalid_cache(&self) {
         let now = NOW_MINUTES.load(SeqCst);
@@ -99,5 +90,14 @@ impl SpaceInterface for CacheSpace {
                 return value.0 + duration > now;
             });
         }
+    }
+
+    // NOT EXISTS!
+
+    fn dump(&self) {
+        return;
+    }
+    fn rise(&mut self) {
+        return;
     }
 }

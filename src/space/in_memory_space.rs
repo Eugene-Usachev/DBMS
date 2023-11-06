@@ -7,7 +7,7 @@ use std::sync::{RwLock};
 use ahash::AHashMap;
 use crate::constants;
 use crate::constants::actions;
-use crate::space::space::SpaceInterface;
+use crate::space::space::Space;
 use crate::utils::hash::get_hash::get_hash;
 
 pub struct InMemorySpace {
@@ -116,7 +116,7 @@ impl InMemorySpace {
     }
 }
 
-impl SpaceInterface for InMemorySpace {
+impl Space for InMemorySpace {
     #[inline(always)]
     fn get(&self, key: &[u8]) -> Option<Vec<u8>> {
         match self.data[get_hash(key) % self.size].read().unwrap().get(key) {
@@ -208,7 +208,7 @@ impl SpaceInterface for InMemorySpace {
         file.write_all(&[number as u8, (number >> 8) as u8, (number >> 16) as u8, (number >> 24) as u8]).unwrap();
     }
 
-    fn rise(&self) {
+    fn rise(&mut self) {
         let file_name = format!("{}{}.dump", self.name, self.number_of_dumps.fetch_add(1, SeqCst));
         let path: PathBuf = ["..", constants::paths::PERSISTENCE_DIR, &file_name].iter().collect();
 

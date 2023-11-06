@@ -1,5 +1,7 @@
-use std::net::{TcpListener, TcpStream};
+use std::net::{TcpListener};
 use std::ops::{DerefMut};
+#[cfg(not(target_os = "windows"))]
+use std::os::unix::net::UnixListener;
 use std::sync::{Arc};
 use std::thread;
 
@@ -10,7 +12,7 @@ use crate::storage::storage::Storage;
 use crate::utils::fastbytes::uint;
 
 use crate::server::reactions::status::{ping};
-use crate::server::reactions::space::{create_space_cache, create_space_in_memory, get_spaces_names};
+use crate::server::reactions::space::{create_space_cache, create_space_in_memory, create_space_on_disk, get_spaces_names};
 use crate::server::reactions::work_with_spaces::{delete, get, get_and_reset_cache_time, insert, set};
 use crate::server::stream_trait::Stream;
 
@@ -18,7 +20,8 @@ pub struct Server {
     storage: Arc<Storage>,
     is_running: bool,
     password: String,
-    port: u16,
+    tcp_port: u16,
+    unix_port: u16,
 }
 
 impl Server {
@@ -28,7 +31,8 @@ impl Server {
         Storage::init(storage.clone());
         Self {
             storage: storage.clone(),
-            port: config.port,
+            tcp_port: config.tcp_port,
+            unix_port: config.unix_port,
             password: config.password,
             is_running: false,
         }
@@ -39,20 +43,47 @@ impl Server {
             return;
         }
         self.is_running = true;
-        let listener_ = TcpListener::bind(format!("dbms:{}", self.port));
+        let storage = self.storage.clone();
+        #[cfg(not(target_os = "windows"))] {
+            let unix_port = self.unix_port;
+            thread::spawn(move || {
+                let listener_ = UnixListener::bind(format!("dbms:{}", unix_port));
+                let listener = match listener_ {
+                    Ok(listener) => listener,
+                    Err(e) => {
+                        panic!("Can't bind to port: {}, the error is: {:?}", unix_port, e);
+                    }
+                };
+                println!("Server tcp listening on port {}", unix_port);
+                for stream in listener.incoming() {
+                    let storage= storage.clone();
+                    thread::spawn(move || {
+                        match stream {
+                            Ok(mut stream) => {
+                                Self::handle_client(storage, &mut stream);
+                            }
+                            Err(e) => {
+                                println!("Error: {}", e);
+                            }
+                        }
+                    });
+                }
+            });
+        }
+        let listener_ = TcpListener::bind(format!("dbms:{}", self.tcp_port));
         let listener = match listener_ {
             Ok(listener) => listener,
             Err(e) => {
-                panic!("Can't bind to port: {}, the error is: {:?}", self.port, e);
+                panic!("Can't bind to port: {}, the error is: {:?}", self.tcp_port, e);
             }
         };
-        println!("Server tcp listening on port {}", self.port);
+        println!("Server tcp listening on port {}", self.tcp_port);
         for stream in listener.incoming() {
             let storage= self.storage.clone();
             thread::spawn(move || {
                 match stream {
-                    Ok(stream) => {
-                        Self::handle_client(storage, stream);
+                    Ok(mut stream) => {
+                        Self::handle_client(storage, &mut stream);
                     }
                     Err(e) => {
                         println!("Error: {}", e);
@@ -63,18 +94,18 @@ impl Server {
     }
 
     #[inline(always)]
-    fn handle_client(storage: Arc<Storage>, mut stream: TcpStream) {
+    fn handle_client(storage: Arc<Storage>, mut stream: &mut impl Stream) {
         let mut read_buffer = [0u8; READ_BUFFER_SIZE];
         let mut write_buffer = [0u8; WRITE_BUFFER_SIZE];
 
         let mut log_buffer = [0u8; WRITE_BUFFER_SIZE];
         let mut log_buffer_offset = 0;
-        while match <TcpStream as Stream>::read(&mut stream, &mut read_buffer) {
+        while match Stream::read(stream, &mut read_buffer) {
             Ok(0) => false,
             Ok(mut pipe_size) => {
                 let real_pipe_size = uint::u32(&read_buffer[0..4]);
                 while real_pipe_size != pipe_size as u32 {
-                    match Stream::read(&mut stream, &mut read_buffer[pipe_size..]) {
+                    match Stream::read(stream, &mut read_buffer[pipe_size..]) {
                         Ok(0) => {
                             break;
                         }
@@ -96,15 +127,15 @@ impl Server {
                     if size == 65535 {
                         let big_size:u32 = uint::u32(&read_buffer[offset+2..offset+6]);
                         offset += 6;
-                        write_offset = Self::handle_message(&mut stream, storage.clone(), &read_buffer[offset..offset + big_size as usize], &mut write_buffer, write_offset, &mut log_buffer, &mut log_buffer_offset);
+                        write_offset = Self::handle_message(stream, storage.clone(), &read_buffer[offset..offset + big_size as usize], &mut write_buffer, write_offset, &mut log_buffer, &mut log_buffer_offset);
                         offset += big_size as usize;
                     } else {
                         offset += 2;
-                        write_offset = Self::handle_message(&mut stream, storage.clone(), &read_buffer[offset..offset + size as usize], &mut write_buffer, write_offset, &mut log_buffer, &mut log_buffer_offset);
+                        write_offset = Self::handle_message(stream, storage.clone(), &read_buffer[offset..offset + size as usize], &mut write_buffer, write_offset, &mut log_buffer, &mut log_buffer_offset);
                         offset += size as usize;
                     }
                 }
-                Stream::write_all(&mut stream, &write_buffer[..write_offset]).expect("Can't write to stream");
+                Stream::write_all(stream, &write_buffer[..write_offset]).expect("Can't write to stream");
                 if log_buffer_offset > 0 {
                     Stream::write_all(storage.log_file.lock().unwrap().deref_mut(), &log_buffer[..log_buffer_offset]).expect("Can't write to log file");
                     log_buffer_offset = 0;
@@ -112,8 +143,8 @@ impl Server {
                 true
             },
             Err(e) => {
-                println!("An error occurred, terminating connection with {}, error has a message: {:?}", stream.peer_addr().unwrap(), e);
-                stream.shutdown(std::net::Shutdown::Both).unwrap();
+                println!("An error occurred, error has a message: {:?}", e);
+                stream.shutdown().unwrap();
                 false
             }
         } {};
@@ -126,6 +157,7 @@ impl Server {
 
             actions::CREATE_SPACE_IN_MEMORY => create_space_in_memory(stream, storage, message, write_buf, write_offset, log_buf, log_buf_offset),
             actions::CREATE_SPACE_CACHE => create_space_cache(stream, storage, message, write_buf, write_offset, log_buf, log_buf_offset),
+            actions::CREATE_SPACE_ON_DISK => create_space_on_disk(stream, storage, message, write_buf, write_offset, log_buf, log_buf_offset),
             actions::GET_SPACES_NAMES => get_spaces_names(stream, storage, write_buf, write_offset),
 
             actions::GET => get(stream, storage, message, write_buf, write_offset),
