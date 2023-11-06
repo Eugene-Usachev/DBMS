@@ -3,7 +3,7 @@ use std::sync::atomic::Ordering::SeqCst;
 use std::sync::{Arc, Mutex, RwLock};
 use std::{env, thread};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-use crate::space::space::SpaceInterface;
+use crate::space::space::Space;
 use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::path::PathBuf;
@@ -12,7 +12,7 @@ use crate::constants;
 pub static NOW_MINUTES: AtomicU64 = AtomicU64::new(0);
 
 pub struct Storage {
-    pub(crate) spaces: RwLock<Vec<Box<dyn SpaceInterface + Send + Sync + 'static>>>,
+    pub(crate) spaces: RwLock<Vec<Box<dyn Space + Send + Sync + 'static>>>,
     pub(crate) spaces_names: RwLock<Vec<String>>,
 
     pub log_file: Mutex<File>,

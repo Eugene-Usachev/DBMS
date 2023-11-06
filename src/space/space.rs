@@ -1,4 +1,4 @@
-pub trait SpaceInterface {
+pub trait Space {
     fn get(&self, key: &[u8]) -> Option<Vec<u8>>;
     fn get_and_reset_cache_time(&self, key:  &[u8]) -> Option<Vec<u8>>;
     fn set(&self, key: Vec<u8>, value: Vec<u8>, log_buffer: &mut [u8], log_buffer_offset: &mut usize);
@@ -7,8 +7,7 @@ pub trait SpaceInterface {
     fn count(&self) -> u64;
 
     fn dump(&self);
-    fn rise(&self);
-
+    fn rise(&mut self);
     fn invalid_cache(&self);
 }
 

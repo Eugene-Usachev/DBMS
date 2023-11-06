@@ -1,34 +1,24 @@
-#FROM rust:latest as build
-#
-#WORKDIR /test-tcp
-#
-#COPY ./Cargo.lock ./Cargo.lock
-#COPY ./Cargo.toml ./Cargo.toml
-#
-#COPY ./src ./src
-#
-## Build for release.
-#RUN cargo build --release
-#
-#FROM debian:buster-slim
-#
-#COPY --from=build /test-tcp/target/release/db /usr/src/db
-#
-#EXPOSE 8081
-#
-#CMD ["/usr/src/db"]
+ARG RUST_VERSION=1.70.0
+ARG APP_NAME=db
+FROM rust:${RUST_VERSION}-slim-bullseye AS build
+ARG APP_NAME
+WORKDIR /app
 
-FROM rust:latest as build
+RUN --mount=type=bind,source=src,target=src \
+    --mount=type=bind,source=Cargo.toml,target=Cargo.toml \
+    --mount=type=bind,source=Cargo.lock,target=Cargo.lock \
+    --mount=type=cache,target=/app/target/ \
+    --mount=type=cache,target=/usr/local/cargo/registry/ \
+    <<EOF
+set -e
+cargo build --locked --release
+cp ./target/release/$APP_NAME /bin/server
+EOF
 
-WORKDIR /test-tcp
+FROM debian:bullseye-slim AS final
 
-COPY ./Cargo.lock ./Cargo.lock
-COPY ./Cargo.toml ./Cargo.toml
-
-COPY ./src ./src
+COPY --from=build /bin/server /bin/
 
 EXPOSE 8081
 
-RUN cargo build --release
-
-CMD ["/test-tcp/target/release/db"]
+CMD ["/bin/server"]
