@@ -1,4 +1,4 @@
-use std::fs::{File, OpenOptions};
+use std::fs::{DirBuilder, File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::sync::atomic::AtomicU32;
@@ -16,7 +16,7 @@ pub struct InMemorySpace {
     pub size: usize,
     number_of_dumps: AtomicU32,
     name: String,
-    is_it_logging: bool,
+    is_it_logging: bool
 }
 
 impl InMemorySpace {
@@ -168,8 +168,9 @@ impl Space for InMemorySpace {
         let mut kl;
         let mut vl;
         let number = self.number_of_dumps.fetch_add(1, SeqCst);
+        let _ = DirBuilder::new().create(self.name.clone());
         let file_name = format!("{}{number}.dump", self.name);
-        let path: PathBuf = ["..", constants::paths::PERSISTENCE_DIR, &file_name].iter().collect();
+        let path: PathBuf = ["..", constants::paths::PERSISTENCE_DIR, &self.name, &file_name].iter().collect();
         // TODO maybe remove old dumps?
         let count = self.count();
         buf[0..8].copy_from_slice(&[count as u8, (count >> 8) as u8, (count >> 16) as u8, (count >> 24) as u8, (count >> 32) as u8, (count >> 40) as u8, (count >> 48) as u8, (count >> 56) as u8]);
@@ -197,20 +198,42 @@ impl Space for InMemorySpace {
             output.write(&buf[..offset]).expect("failed to write");
         }
 
-        let file_name = format!("{}_number.txt", self.name);
-        let path: PathBuf = ["..", constants::paths::PERSISTENCE_DIR, &file_name].iter().collect();
+        let file_name = format!("{}_number.txt", self.name.clone());
+        let path: PathBuf = ["..", constants::paths::PERSISTENCE_DIR, &self.name, &file_name].iter().collect();
         let mut file = OpenOptions::new()
-            .read(true)
             .write(true)
             .create(true)
+            .append(false)
             .open(path)
             .unwrap();
         file.write_all(&[number as u8, (number >> 8) as u8, (number >> 16) as u8, (number >> 24) as u8]).unwrap();
     }
 
     fn rise(&mut self) {
-        let file_name = format!("{}{}.dump", self.name, self.number_of_dumps.fetch_add(1, SeqCst));
-        let path: PathBuf = ["..", constants::paths::PERSISTENCE_DIR, &file_name].iter().collect();
+        let number;
+        {
+            let file_name = format!("{}_number.txt", self.name.clone());
+            let path: PathBuf = ["..", constants::paths::PERSISTENCE_DIR, &self.name, &file_name].iter().collect();
+            let mut file_ = OpenOptions::new()
+                .read(true)
+                .open(path);
+            match file_ {
+                Ok(mut file) => {
+                    let mut buf = [0u8; 4];
+                    file.read(&mut buf).unwrap();
+                    number = (buf[3] as u32) << 24 | (buf[2] as u32) << 16 | (buf[1] as u32) << 8 | (buf[0] as u32);
+                }
+                Err(e) => {
+                    if e.kind() == std::io::ErrorKind::NotFound {
+                        return;
+                    }
+                    panic!("[Panic] cannot rise: {}", e);
+                }
+            }
+        }
+        self.number_of_dumps.store(number, SeqCst);
+        let file_name = format!("{}{}.dump", self.name, number);
+        let path: PathBuf = ["..", constants::paths::PERSISTENCE_DIR, &self.name, &file_name].iter().collect();
 
         let mut input = File::open(path.clone()).expect(&*format!("Failed to open file with path: {}", path.to_string_lossy()));
         let file_len = input.metadata().unwrap().len();
@@ -251,7 +274,7 @@ impl Space for InMemorySpace {
                     continue 'read;
                 }
                 start_offset = offset;
-                let kl = (chunk[offset + 2] as u32) << 16 | (chunk[offset + 1] as u32) << 8 | (chunk[offset + 0] as u32);
+                let kl = (chunk[offset + 2] as u32) << 16 | (chunk[offset + 1] as u32) << 8 | (chunk[offset] as u32);
                 offset += 3;
 
                 if offset + kl as usize + 3 /*3 here is bytes for kl*/ > bytes_read {
@@ -264,7 +287,7 @@ impl Space for InMemorySpace {
                 key_offset = offset;
                 offset += kl as usize;
 
-                let vl = (chunk[offset + 2] as u32) << 16 | (chunk[offset + 1] as u32) << 8 | (chunk[offset + 0] as u32);
+                let vl = (chunk[offset + 2] as u32) << 16 | (chunk[offset + 1] as u32) << 8 | (chunk[offset] as u32);
                 offset += 3;
 
                 if offset + vl as usize > bytes_read {
