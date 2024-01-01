@@ -25,7 +25,7 @@ pub struct Server {
 }
 
 impl Server {
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         let config = Config::new();
         let storage = Arc::new(Storage::new());
         Storage::init(storage.clone());
