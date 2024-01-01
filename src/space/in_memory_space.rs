@@ -7,6 +7,7 @@ use std::sync::{RwLock};
 use ahash::AHashMap;
 use crate::constants;
 use crate::constants::actions;
+use crate::space::scheme::SpaceScheme;
 use crate::space::space::Space;
 use crate::utils::hash::get_hash::get_hash;
 
