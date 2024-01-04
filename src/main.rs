@@ -1,72 +1,60 @@
-mod server;
-mod console;
+#![feature(core_intrinsics)]
+use std::sync::Arc;
+
+mod index;
+mod bin_types;
 mod constants;
-mod space;
-mod settings;
 mod utils;
 mod storage;
+
+use storage::*;
+use crate::table::table::Table;
+use crate::tests::{crud, persistence};
+
+mod table;
+mod console;
 mod disk_storage;
+mod writers;
+mod server;
+mod tests;
 
-use crate::console::start_message;
-use crate::server::server::Server;
+#[cfg(not(test))]
+#[tokio::main]
+async fn main() {
+    let storage = Arc::new(Storage::new());
+    Storage::init(storage.clone());
 
-fn main() {
-    //test_ideal_numbers();
-
-    start_message::start_message();
-
-    Server::new().run();
+    server::server::Server::new(storage).run();
 }
 
+#[test]
+fn main() {
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(async {
+            println!("Starting test");
+            let storage = Arc::new(Storage::new());
+            println!("Storage created");
+            Storage::init(storage.clone());
+            println!("Storage initialized");
+            crud(storage.clone());
+            persistence(storage.clone());
+        });
 
-// fn bench_async_map_std(n : usize, keys: &[String]) {
-//     let mut maps: Vec<_> = Vec::with_capacity(6);
-//     let start = Instant::now();
-//     let handles: Vec<_> = (0..6)
-//         .map(|table_index| {
-//             std::thread::spawn(move || {
-//                 let mut space = HashMap::new();
-//                 for i in (0..3000000).filter(|i| (i % 6) == table_index) {
-//                     space.insert(keys[i].clone(), i);
-//                 }
-//                 space
-//             })
-//         })
-//         .collect();
-//
-//     for (i, handle) in handles.into_iter().enumerate() {
-//         let space = handle.join().unwrap();
-//         maps.push(space);
-//     }
-//
-//     let elapsed = start.elapsed();
-//     println!("bench_async_map taken to set {} keys: {:?} len is {} summary: {:?}", n, elapsed, maps.len(), maps[0].len() + maps[1].len() + maps[2].len() + maps[3].len() + maps[4].len() + maps[5].len());
-//
-//     let start2 = Instant::now();
-//     for table_index in 0..6 {
-//         for i in (0..3000000).filter(|i| (i % 6) == table_index) {
-//             maps[(i % 4) as usize].get(&keys[i].clone());
-//         }
-//     }
-//     let elapsed2 = start2.elapsed();
-//     println!("bench_async_map taken to get {} keys: {:?}", n, elapsed2);
-// }
 
-// fn bench_amap(n : usize, keys: &[String]) {
-//     let mut map = HashMap::new();
-//     let start = Instant::now();
-//     for i in 0..n {
-//         map.insert(keys[i].clone(), i);
-//     }
-//     let elapsed = start.elapsed();
-//     println!("ahash taken to set {} keys: {:?} len is {}", n, elapsed, map.len());
-//
-//     let start2 = Instant::now();
-//     for i in 0..n {
-//         if i != *map.get(&keys[i].clone()).unwrap() {
-//             println!("ahash failed");
-//         }
-//     }
-//     let elapsed2 = start2.elapsed();
-//     println!("ahash taken to get {} keys: {:?}", n, elapsed2);
-// }
+    // let table = table::in_memory::InMemoryTable::new(0, index::HashInMemoryIndex::new(), "test".to_string(), true, 0 ,storage.log_writer.clone());
+    // let key = bin_types::BinKey::new(b"key");
+    // let value = bin_types::BinValue::new(b"value1");
+    // println!("{:?}", value);
+    // table.insert(key.clone(), value);
+    // let got = table.get(&key);
+    // assert_eq!(bin_types::BinValue::new(b"value1"), got.unwrap());
+    // let got = table.get(&key);
+    // println!("Got: {:?}, needed: {:?}", got.unwrap(), bin_types::BinValue::new(b"value1"));
+    //
+    // tokio::time::sleep(Duration::from_secs(111111)).await;
+
+    //server::server::Server::new(storage).run();
+}

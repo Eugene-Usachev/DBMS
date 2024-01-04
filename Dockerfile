@@ -1,6 +1,5 @@
-ARG RUST_VERSION=1.70.0
-ARG APP_NAME=db
-FROM rust:${RUST_VERSION}-slim-bullseye AS build
+ARG APP_NAME=dbms
+FROM rustlang/rust:nightly-bullseye-slim AS build
 ARG APP_NAME
 WORKDIR /app
 
@@ -17,8 +16,10 @@ EOF
 
 FROM debian:bullseye-slim AS final
 
+USER root
+
 COPY --from=build /bin/server /bin/
 
-EXPOSE 8081
+EXPOSE 8082
 
 CMD ["/bin/server"]
