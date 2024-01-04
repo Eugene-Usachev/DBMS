@@ -1,4 +1,4 @@
 pub mod status;
 
-pub mod space;
+pub mod table;
 pub mod work_with_spaces;

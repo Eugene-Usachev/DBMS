@@ -1,6 +1,5 @@
-#[allow(unused_imports)]
 use std::{
-    fs::{File, metadata, DirBuilder},
+    fs::{File, metadata},
     hash::{BuildHasher, Hash, Hasher},
     io::{Read, Write},
     sync:: {
@@ -8,66 +7,65 @@ use std::{
         atomic::AtomicU64
     }
 };
+use std::fs::DirBuilder;
+use std::intrinsics::{likely, unlikely};
+use std::time::Instant;
 use ahash::{HashMap, HashMapExt, RandomState};
-use dashmap::DashMap;
 use positioned_io::{ReadAt};
+use crate::bin_types::{BinKey, BinValue};
+use crate::index::Index;
+use crate::writers::{get_size_for_key_len, get_size_for_value_len, SizedWriter};
 use crate::constants::paths::PERSISTENCE_DIR;
 
-pub struct DiskStorage {
+const BUFFER_SIZE: usize = 4100;
+const DELETE_BUFFER_SIZE: usize = 66;
+
+pub struct DiskStorage<I: Index<BinKey, (u64, u64)>> {
     /// Here `Vec<u8>` is the key.
     /// Be careful! Size and offset to the VALUE, not to the value and key and 6 bytes for the size of the value and key.
-    pub(crate) infos: DashMap<Vec<u8>, (u64, u64), RandomState>,
+    /// You can think, that we can use a struct instead. We can't, it is make this code too slow.
+    pub(crate) infos: I,
     atomic_indexes: Box<[Arc<AtomicU64>]>,
-    files: Box<[Arc<Mutex<File>>]>,
+    files: Box<[Arc<Mutex<SizedWriter<File>>>]>,
     read_files: Box<[Arc<RwLock<File>>]>,
-    files_for_need_to_delete: Box<[Arc<Mutex<File>>]>,
+    files_for_need_to_delete: Box<[Arc<Mutex<SizedWriter<File>>>]>,
     path: String,
     size: usize,
-    mask: usize,
+    lob: usize,
     rs: RandomState
 }
 
 // CRUD
-impl DiskStorage {
+impl<I: Index<BinKey, (u64, u64)>> DiskStorage<I> {
     #[inline(always)]
-    pub(crate) fn insert(&self, key: Vec<u8>, value: Vec<u8>) {
+    pub(crate) fn insert(&self, key: BinKey, value: BinValue) -> bool {
+        if unlikely(self.infos.contains(&key)) {
+            return false;
+        }
+
         let (file, atomic_index) = self.get_file(&key);
 
         let kl = key.len();
+        let k_size = get_size_for_key_len(kl);
         let vl = value.len();
-        let size = (6 + kl + vl) as u64;
-        let mut buf = Vec::with_capacity(size as usize);
-        buf.resize(size as usize, 0);
-        let size_kl;
-        if kl < 255 {
-            buf[0] = kl as u8;
-            size_kl = 1;
-        } else {
-            buf[0] = 255;
-            buf[1..3].copy_from_slice(&[kl as u8, ((kl >> 8) as u8)]);
-            size_kl = 3;
-        }
-        let mut offset = size_kl + kl;
-        buf[size_kl..offset].copy_from_slice(key.as_slice());
-        buf[offset..offset+3].copy_from_slice(&[vl as u8, ((vl >> 8) as u8),  (vl >> 16) as u8]);
-        offset += 3;
-        buf[offset..offset+vl].copy_from_slice(value.as_slice());
-
+        let v_size = get_size_for_value_len(vl);
         let index;
-
         {
             let mut file = file.lock().unwrap();
-            file.write_all(&buf).expect("failed to write");
-            index = atomic_index.fetch_add(size, std::sync::atomic::Ordering::SeqCst);
+            file.write_key_with_size(&key, k_size).expect("failed to write to file");
+            file.write_value_with_size(&value, v_size).expect("failed to write to file");
+            index = atomic_index.fetch_add((vl + v_size) as u64, std::sync::atomic::Ordering::SeqCst);
         }
 
-        self.infos.insert(key, (vl as u64, index+3 + (size_kl + kl) as u64));
+        // TODO: should we not to use usize in indexes?
+        self.infos.insert(key, (vl as u64, index + (k_size + kl) as u64));
+        true
     }
 
     #[inline(always)]
-    pub(crate) fn get(&self, key: &[u8]) -> Option<Vec<u8>>{
+    pub(crate) fn get(&self, key: &BinKey) -> Option<BinValue>{
         let res = self.get_index_and_file(key);
-        if res.is_none() {
+        if unlikely(res.is_none()) {
             return None;
         }
 
@@ -75,88 +73,63 @@ impl DiskStorage {
         let mut buf = vec![0; info.0 as usize];
         file.read().unwrap().read_at(info.1, &mut buf).expect("failed to read");
 
-        return Some(buf);
+        return Some(BinValue::new(buf.as_slice()));
     }
 
     #[inline(always)]
-    pub(crate) fn delete(&self, key: &Vec<u8>) {
+    pub(crate) fn delete(&self, key: &BinKey) {
         let file = self.get_need_to_delete(key);
-        if self.infos.remove(key).is_none() {
+        if unlikely(self.infos.remove(key).is_none()) {
             return;
         }
 
-        let kl = key.len();
-        let size_kl;
-        if kl < 255 {
-            size_kl = 1;
-        } else {
-            size_kl = 3;
-        }
-
-        let mut buf = Vec::with_capacity(size_kl+kl);
-        buf.resize(size_kl+kl, 0);
-        if kl < 255 {
-            buf[0] = kl as u8;
-        } else {
-            buf[0] = 255;
-            buf[1..3].copy_from_slice(&[kl as u8, ((kl >> 8) as u8)]);
-        }
-        buf[size_kl..size_kl+kl].copy_from_slice(key.as_slice());
-
-        file.lock().unwrap().write_all(&buf).expect("failed to write");
+        file.lock().unwrap().write_key(key).expect("failed to write");
     }
 
     #[inline(always)]
-    pub(crate) fn set(&self, key: Vec<u8>, value: Vec<u8>) {
+    pub(crate) fn set(&self, key: BinKey, value: BinValue) -> Option<BinValue> {
         let mut hasher = RandomState::build_hasher(&self.rs);
         key.hash(&mut hasher);
-        let number = hasher.finish() as usize & self.mask;
+        let number = hasher.finish() as usize & self.lob;
         let file = self.files[number].clone();
         let atomic_index = self.atomic_indexes[number].clone();
 
         let kl = key.len();
+        let size_kl= get_size_for_key_len(kl);
         let vl = value.len();
-        let size_kl;
-        if kl < 255 {
-            size_kl = 1;
-        } else {
-            size_kl = 3;
-        }
-        let size = (3 + size_kl + kl + vl) as u64;
-        let mut buf = Vec::with_capacity(size as usize);
-        buf.resize(size as usize, 0);
-        if kl < 255 {
-            buf[0] = kl as u8;
-        } else {
-            buf[0] = 255;
-            buf[1..3].copy_from_slice(&[kl as u8, ((kl >> 8) as u8)]);
-        }
-        let mut offset = size_kl + kl;
-        buf[size_kl..offset].copy_from_slice(key.as_slice());
-        buf[offset..offset+3].copy_from_slice(&[vl as u8, ((vl >> 8) as u8),  (vl >> 16) as u8]);
-        offset += 3;
-        buf[offset..offset+vl].copy_from_slice(value.as_slice());
+        let size_vl = get_size_for_value_len(vl);
         let index;
         {
             let mut file = file.lock().unwrap();
-            file.write_all(&buf).expect("failed to write");
-            index = atomic_index.fetch_add(size, std::sync::atomic::Ordering::SeqCst);
+            file.write_key_with_size(&key, size_kl).expect("failed to write");
+            index = atomic_index.fetch_add((vl + size_vl) as u64, std::sync::atomic::Ordering::SeqCst);
         }
 
-        if self.infos.insert(key, (vl as u64, index + 3 + (size_kl + kl) as u64)).is_some() {
+        let old_value = self.infos.set(key.clone(), (vl as u64, index + (size_kl + kl) as u64));
+
+        if unlikely(old_value.is_some()) {
             let delete_file_ = self.files_for_need_to_delete[number].clone();
             let mut delete_file = delete_file_.lock().unwrap();
-            delete_file.write_all(&buf[..3+kl]).expect("failed to write");
+            delete_file.write_key_with_size(&key, size_kl).expect("failed to write");
+
+            let info = unsafe { old_value.unwrap_unchecked() };
+            let mut buf = vec![0; info.0 as usize];
+            let file = self.read_files[number].clone();
+            file.read().unwrap().read_at(info.1, &mut buf).expect("failed to read");
+
+            return Some(BinValue::new(buf.as_slice()));
+        } else {
+            return None;
         }
     }
 }
 
 // Persistence
-impl DiskStorage {
+impl<I: Index<BinKey, (u64, u64)>> DiskStorage<I> {
     pub fn rise(&mut self) -> bool {
         let path = format!("{}/{}", PERSISTENCE_DIR, self.path.clone());
         // check for the existence of the directory
-        if !metadata(path.clone()).is_ok() {
+        if unlikely(!metadata(path.clone()).is_ok()) {
             return false;
         }
 
@@ -168,9 +141,9 @@ impl DiskStorage {
         let mut atomic_indexes = Vec::with_capacity(self.size);
 
         for i in 0..self.size {
-            files.push(Arc::new(Mutex::new(File::open(format!("{}/{}", path.clone(), i)).unwrap())));
+            files.push(Arc::new(Mutex::new(SizedWriter::new_with_capacity(File::open(format!("{}/{}", path.clone(), i)).unwrap(), BUFFER_SIZE))));
             read_files.push(Arc::new(RwLock::new(File::open(format!("{}/{}", path.clone(), i)).unwrap())));
-            files_for_need_to_delete.push(Arc::new(Mutex::new(File::open(format!("{}/{}D", path.clone(), i)).unwrap())));
+            files_for_need_to_delete.push(Arc::new(Mutex::new(SizedWriter::new_with_capacity(File::open(format!("{}/{}D", path.clone(), i)).unwrap(), DELETE_BUFFER_SIZE))));
             atomic_indexes.push(Arc::new(AtomicU64::new(0)));
         }
 
@@ -179,7 +152,7 @@ impl DiskStorage {
         self.files_for_need_to_delete = files_for_need_to_delete.into_boxed_slice();
         self.atomic_indexes = atomic_indexes.into_boxed_slice();
 
-        let mut chunk = vec![0u8; 128 * 1024 * 1024];
+        let mut chunk = vec![0u8; 1024 * 1024];
         let mut read = 0;
         let mut file_len;
 
@@ -191,15 +164,16 @@ impl DiskStorage {
         let mut tmp_set = HashMap::with_capacity(2>>16);
 
         for i in 0..self.size {
-            let mut file = self.files_for_need_to_delete[i].lock().unwrap();
+            let lock = self.files_for_need_to_delete[i].lock().unwrap();
+            let mut file = lock.inner.get_ref();
             file_len = file.metadata().unwrap().len();
             'read_loop: loop {
-                if read == file_len {
+                if unlikely(read == file_len) {
                     break;
                 }
 
                 let mut bytes_read = file.read(&mut chunk[offset_last_record..]).expect("Failed to read");
-                if bytes_read == 0 {
+                if unlikely(bytes_read == 0) {
                     break;
                 }
 
@@ -208,7 +182,7 @@ impl DiskStorage {
                 read += bytes_read as u64;
 
                 loop {
-                    if offset + 1 > bytes_read {
+                    if unlikely(offset + 1 > bytes_read) {
                         let slice_to_copy = &mut Vec::with_capacity(0);
                         chunk[start_offset..bytes_read].clone_into(slice_to_copy);
                         offset_last_record = bytes_read - start_offset;
@@ -217,11 +191,11 @@ impl DiskStorage {
                     }
                     start_offset = offset;
                     let mut kl = chunk[offset + 1] as u32;
-                    if kl < 255 {
+                    if likely(kl < 255) {
                         offset += 1;
                     } else {
                         kl = (chunk[offset + 1] as u32) << 8 | (chunk[offset] as u32);
-                        if offset + 3 > bytes_read {
+                        if unlikely(offset + 3 > bytes_read) {
                             let slice_to_copy = &mut Vec::with_capacity(0);
                             chunk[start_offset..bytes_read].clone_into(slice_to_copy);
                             offset_last_record = bytes_read - start_offset;
@@ -231,7 +205,7 @@ impl DiskStorage {
                         offset += 3;
                     }
 
-                    if offset + kl as usize > bytes_read {
+                    if unlikely(offset + kl as usize > bytes_read) {
                         let slice_to_copy = &mut Vec::with_capacity(0);
                         chunk[start_offset..bytes_read].clone_into(slice_to_copy);
                         offset_last_record = bytes_read - start_offset;
@@ -250,16 +224,16 @@ impl DiskStorage {
             offset_last_record = 0;
             start_offset = 0;
             read = 0;
-
-            let mut file = self.files[i].lock().unwrap();
+            let lock = self.files[i].lock().unwrap();
+            let mut file = lock.inner.get_ref();
             file_len = file.metadata().unwrap().len();
             'read_loop: loop {
-                if read == file_len {
+                if unlikely(read == file_len) {
                     break;
                 }
 
                 let mut bytes_read = file.read(&mut chunk[offset_last_record..]).expect("Failed to read");
-                if bytes_read == 0 {
+                if unlikely(bytes_read == 0) {
                     break;
                 }
 
@@ -268,7 +242,7 @@ impl DiskStorage {
                 read += bytes_read as u64;
 
                 loop {
-                    if offset + 1 > bytes_read {
+                    if unlikely(offset + 1 > bytes_read) {
                         let slice_to_copy = &mut Vec::with_capacity(0);
                         chunk[start_offset..bytes_read].clone_into(slice_to_copy);
                         offset_last_record = bytes_read - start_offset;
@@ -277,10 +251,10 @@ impl DiskStorage {
                     }
                     start_offset = offset;
                     let mut kl = chunk[offset + 1] as u32;
-                    if kl < 255 {
+                    if likely(kl < 255) {
                         offset += 1;
                     } else {
-                        if offset + 3 > bytes_read {
+                        if unlikely(offset + 3 > bytes_read) {
                             let slice_to_copy = &mut Vec::with_capacity(0);
                             chunk[start_offset..bytes_read].clone_into(slice_to_copy);
                             offset_last_record = bytes_read - start_offset;
@@ -291,7 +265,7 @@ impl DiskStorage {
                         offset += 3;
                     }
 
-                    if offset + kl as usize + 3 /*3 here is bytes for vl*/ > bytes_read {
+                    if unlikely(offset + kl as usize + 3 /*3 here is bytes for vl*/ > bytes_read) {
                         let slice_to_copy = &mut Vec::with_capacity(0);
                         chunk[start_offset..bytes_read].clone_into(slice_to_copy);
                         offset_last_record = bytes_read - start_offset;
@@ -304,7 +278,7 @@ impl DiskStorage {
                     let vl = (chunk[offset + 2] as u32) << 16 | (chunk[offset + 1] as u32) << 8 | (chunk[offset] as u32);
                     offset += 3;
 
-                    if offset + vl as usize > bytes_read {
+                    if unlikely(offset + vl as usize > bytes_read) {
                         let slice_to_copy = &mut Vec::with_capacity(0);
                         chunk[start_offset..bytes_read].clone_into(slice_to_copy);
                         offset_last_record = bytes_read - start_offset;
@@ -317,20 +291,20 @@ impl DiskStorage {
                     let key = chunk[key_offset..key_offset+kl as usize].to_vec();
                     let mut hasher = self.rs.build_hasher();
                     key.hash(&mut hasher);
-                    let number = hasher.finish() as usize & self.mask;
+                    let number = hasher.finish() as usize & self.lob;
 
                     unsafe {
                         let atomic = self.atomic_indexes.get_unchecked(number);
                         let res = tmp_set.get_mut(&chunk[key_offset..key_offset+kl as usize]);
-                        if res.is_some() {
+                        if unlikely(res.is_some()) {
                             let number = res.unwrap();
-                            if *number != 0 {
+                            if unlikely(*number != 0) {
                                 *number -= 1;
                                 atomic.fetch_add((6 + vl + kl) as u64, std::sync::atomic::Ordering::SeqCst);
                                 continue;
                             }
                         }
-                        self.infos.insert(key, (vl as u64, atomic.fetch_add((6 + vl + kl) as u64, std::sync::atomic::Ordering::SeqCst) + 6 +(kl as u64)));
+                        self.infos.insert(BinKey::new(key.as_slice()), (vl as u64, atomic.fetch_add((6 + vl + kl) as u64, std::sync::atomic::Ordering::SeqCst) + 6 +(kl as u64)));
                     }
                 }
             }
@@ -345,8 +319,9 @@ impl DiskStorage {
 }
 
 // some helpers functions
-impl DiskStorage {
-    pub(crate) fn new(path: String, size: usize) -> Self {
+impl<I: Index<BinKey, (u64, u64)>> DiskStorage<I> {
+    #[allow(unused_variables)]
+    pub(crate) fn new(path: String, size: usize, index: I) -> DiskStorage<I> {
         #[cfg(target_os = "windows")] {
             panic!("Do not use windows for `on disk` storage. It is not implemented yet.");
         }
@@ -358,19 +333,19 @@ impl DiskStorage {
                     size.next_power_of_two()
                 }
             };
-            let lob = f64::log2(size as f64) as u32;
-            let mask = (1 << lob) - 1;
+            let mask = f64::log2(size as f64) as u32;
+            let lob = (1 << mask) - 1;
             let rs = RandomState::with_seeds(123412341234, 1234123412343214, 12342134, 12341234123);
 
             let mut storage = Self {
-                infos: DashMap::with_hasher(rs.clone()),
+                infos: index,
                 atomic_indexes: vec![].into_boxed_slice(),
                 files: vec![].into_boxed_slice(),
                 read_files: vec![].into_boxed_slice(),
                 files_for_need_to_delete: vec![].into_boxed_slice(),
                 path,
                 size,
-                mask,
+                lob,
                 rs,
             };
 
@@ -386,9 +361,9 @@ impl DiskStorage {
             let path = format!("{}/{}", PERSISTENCE_DIR, storage.path.clone());
             DirBuilder::new().create(path.clone()).unwrap();
             for i in 0..size {
-                files.push(Arc::new(Mutex::new(File::create(format!("{}/{}", path.clone(), i)).unwrap())));
+                files.push(Arc::new(Mutex::new(SizedWriter::new_with_capacity(File::create(format!("{}/{}", path.clone(), i)).unwrap(), BUFFER_SIZE))));
                 read_files.push(Arc::new(RwLock::new(File::open(format!("{}/{}", path.clone(), i)).unwrap())));
-                files_for_need_to_delete.push(Arc::new(Mutex::new(File::create(format!("{}/{}D", path.clone(), i)).unwrap())));
+                files_for_need_to_delete.push(Arc::new(Mutex::new(SizedWriter::new_with_capacity(File::create(format!("{}/{}D", path.clone(), i)).unwrap(), DELETE_BUFFER_SIZE))));
                 atomic_indexes.push(Arc::new(AtomicU64::new(0)));
             }
 
@@ -402,35 +377,35 @@ impl DiskStorage {
     }
 
     #[inline(always)]
-    fn get_file(&self, key: &Vec<u8>) -> (Arc<Mutex<File>>, Arc<AtomicU64>) {
+    fn get_file(&self, key: &BinKey) -> (Arc<Mutex<SizedWriter<File>>>, Arc<AtomicU64>) {
         let mut hasher = RandomState::build_hasher(&self.rs);
         key.hash(&mut hasher);
-        let number = hasher.finish() as usize & self.mask;
+        let number = hasher.finish() as usize & self.lob;
         return (self.files[number].clone(), self.atomic_indexes[number].clone());
     }
 
     #[inline(always)]
-    fn get_index_and_file(&self, key: &[u8]) -> Option<(Arc<RwLock<File>>, (u64, u64))> {
+    fn get_index_and_file(&self, key: &BinKey) -> Option<(Arc<RwLock<File>>, (u64, u64))> {
         let mut hasher = RandomState::build_hasher(&self.rs);
         key.hash(&mut hasher);
-        let number = hasher.finish() as usize & self.mask;
+        let number = hasher.finish() as usize & self.lob;
         let info;
         {
             let index_ = self.infos.get(key);
-            if index_.is_none() {
+            if unlikely(index_.is_none()) {
                 return None;
             }
-            info = unsafe { *index_.unwrap_unchecked() };
+            info = unsafe { index_.unwrap_unchecked() };
         }
 
         return Some((self.read_files[number].clone(), info));
     }
 
     #[inline(always)]
-    fn get_need_to_delete(&self, key: &Vec<u8>) -> Arc<Mutex<File>> {
+    fn get_need_to_delete(&self, key: &BinKey) -> Arc<Mutex<SizedWriter<File>>> {
         let mut hasher = RandomState::build_hasher(&self.rs);
         key.hash(&mut hasher);
-        let number = hasher.finish() as usize & self.mask;
+        let number = hasher.finish() as usize & self.lob;
         return self.files_for_need_to_delete[number].clone();
     }
 }
