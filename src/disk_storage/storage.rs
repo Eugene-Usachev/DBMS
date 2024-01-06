@@ -357,7 +357,7 @@ impl<I: Index<BinKey, (u64, u64)>> DiskStorage<I> {
             let mut files_for_need_to_delete = Vec::with_capacity(size);
             let mut atomic_indexes = Vec::with_capacity(size);
             let path = format!("{}/{}", PERSISTENCE_DIR, storage.path.clone());
-            DirBuilder::new().create(path.clone()).unwrap();
+            std::fs::DirBuilder::new().create(path.clone()).unwrap();
             for i in 0..size {
                 files.push(Arc::new(Mutex::new(SizedWriter::new_with_capacity(File::create(format!("{}/{}", path.clone(), i)).unwrap(), BUFFER_SIZE))));
                 read_files.push(Arc::new(RwLock::new(File::open(format!("{}/{}", path.clone(), i)).unwrap())));
