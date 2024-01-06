@@ -1,15 +1,13 @@
 use std::{
     fs::{File, metadata},
     hash::{BuildHasher, Hash, Hasher},
-    io::{Read, Write},
+    io::{Read},
     sync:: {
         {Arc, RwLock, Mutex},
         atomic::AtomicU64
     }
 };
-use std::fs::DirBuilder;
 use std::intrinsics::{likely, unlikely};
-use std::time::Instant;
 use ahash::{HashMap, HashMapExt, RandomState};
 use positioned_io::{ReadAt};
 use crate::bin_types::{BinKey, BinValue};

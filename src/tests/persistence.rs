@@ -1,12 +1,10 @@
-use std::io::{BufWriter, Write};
+use std::io::{Write};
 use std::sync::Arc;
-use std::sync::atomic::Ordering::SeqCst;
 use crate::bin_types::{BinKey, BinValue};
 use crate::index::HashInMemoryIndex;
 use crate::storage::Storage;
-use crate::table::in_memory::InMemoryTable;
-use crate::tests::TABLES_CREATED;
 
+#[cfg(test)]
 /// persistence creates two tables. It inserts data and deletes a few of them in both tables.
 /// Then it starts dumps and deletes both tables. And then it creates the tables again and rises it. Then check for all data.
 ///
@@ -17,16 +15,12 @@ pub fn persistence(storage: Arc<Storage>) {
     test_dump_and_log(storage.clone());
 }
 
+#[cfg(test)]
 fn test_dump(storage: Arc<Storage>) {
-    let number1 = TABLES_CREATED.fetch_add(1, SeqCst);
+    let number1 = Storage::create_in_memory_table(storage.clone(), "persistence 1".to_string(), HashInMemoryIndex::new(), false);
+    let number2 = Storage::create_in_memory_table(storage.clone(), "persistence 2".to_string(), HashInMemoryIndex::new(), false);
     let mut tables = storage.tables.write().unwrap();
-    tables.push(Box::new(InMemoryTable::new(
-        number1 as u16, HashInMemoryIndex::new(), "persistence 1".to_string(), false, 0
-    )));
-    let number2 = TABLES_CREATED.fetch_add(1, SeqCst);
-    tables.push(Box::new(InMemoryTable::new(
-        number2 as u16, HashInMemoryIndex::new(), "persistence 2".to_string(), false, 0
-    )));
+
 
     let mut keys = Vec::with_capacity(10000);
     let mut values = Vec::with_capacity(10000);
@@ -46,23 +40,31 @@ fn test_dump(storage: Arc<Storage>) {
             tables[number2].delete(&keys[i], &mut [], &mut 0);
         }
     }
+    drop(tables);
 
-    tables[number1].dump();
-    tables[number2].dump();
+    Storage::dump(storage.clone());
+    let mut tables = storage.tables.write().unwrap();
 
     tables.remove(number1);
     tables.remove(number2 - 1);
+    drop(tables);
+    let mut tables_names = storage.tables_names.write().unwrap();
+    tables_names.remove(number1);
+    tables_names.remove(number2 - 1);
+    drop(tables_names);
 
-    tables.push(Box::new(InMemoryTable::new(
-        number1 as u16, HashInMemoryIndex::new(), "persistence 1".to_string(), false, 1
-    )));
+    Storage::rise(storage.clone());
 
-    tables.push(Box::new(InMemoryTable::new(
-        number2 as u16, HashInMemoryIndex::new(), "persistence 2".to_string(), false, 1
-    )));
+    let mut tables = storage.tables.write().unwrap();
 
-    tables[number1].rise(1);
-    tables[number2].rise(1);
+    let count = tables[number1].count();
+    if count != 5000 {
+        panic!("count: {}", count);
+    }
+    let count = tables[number2].count();
+    if count != 5000 {
+        panic!("count: {}", count);
+    }
 
     for i in 0..10000 {
         if i % 2 == 0 {
@@ -77,16 +79,11 @@ fn test_dump(storage: Arc<Storage>) {
     println!("persistence: dump was successful");
 }
 
+#[cfg(test)]
 fn test_dump_and_log(storage: Arc<Storage>) {
-    let number1 = TABLES_CREATED.fetch_add(1, SeqCst);
+    let number1 = Storage::create_in_memory_table(storage.clone(), "persistence 3".to_string(), HashInMemoryIndex::new(), true);
+    let number2 = Storage::create_in_memory_table(storage.clone(), "persistence 4".to_string(), HashInMemoryIndex::new(), true);
     let mut tables = storage.tables.write().unwrap();
-    tables.push(Box::new(InMemoryTable::new(
-        number1 as u16, HashInMemoryIndex::new(), "persistence 3".to_string(), true, 0
-    )));
-    let number2 = TABLES_CREATED.fetch_add(1, SeqCst);
-    tables.push(Box::new(InMemoryTable::new(
-        number2 as u16, HashInMemoryIndex::new(), "persistence 4".to_string(), true, 0
-    )));
 
     let mut keys = Vec::with_capacity(10000);
     let mut values = Vec::with_capacity(10000);
@@ -110,8 +107,9 @@ fn test_dump_and_log(storage: Arc<Storage>) {
         }
     }
 
-    tables[number1].dump();
-    tables[number2 - 1].dump();
+    drop(tables);
+    Storage::dump(storage.clone());
+    let mut tables = storage.tables.write().unwrap();
 
     for i in 5000..10000 {
         tables[number1].insert(keys[i].clone(), values[i].clone(), &mut log_buffer, &mut log_buffer_offset);
@@ -130,19 +128,23 @@ fn test_dump_and_log(storage: Arc<Storage>) {
 
     tables.remove(number1);
     tables.remove(number2 - 1);
+    drop(tables);
+    let mut tables_names = storage.tables_names.write().unwrap();
+    tables_names.remove(number1);
+    tables_names.remove(number2 - 1);
+    drop(tables_names);
 
-    tables.push(Box::new(InMemoryTable::new(
-        number1 as u16, HashInMemoryIndex::new(), "persistence 3".to_string(), true, 1
-    )));
+    Storage::rise(storage.clone());
+    let mut tables = storage.tables.write().unwrap();
 
-    tables.push(Box::new(InMemoryTable::new(
-        number2 as u16, HashInMemoryIndex::new(), "persistence 4".to_string(), true, 1
-    )));
-
-    tables[number1].rise(1);
-    tables[number2].rise(1);
-
-    Storage::read_log(storage.clone());
+    let count = tables[number1].count();
+    if count != 5000 {
+        panic!("count: {}", count);
+    }
+    let count = tables[number2].count();
+    if count != 5000 {
+        panic!("count: {}", count);
+    }
 
     for i in 0..10000 {
         if i % 2 == 0 {
@@ -154,5 +156,5 @@ fn test_dump_and_log(storage: Arc<Storage>) {
         }
     }
 
-    println!("persistence: dump was successful");
+    println!("persistence: dump and read the log was successful");
 }

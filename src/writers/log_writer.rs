@@ -4,7 +4,7 @@
 
 use std::fs::File;
 use std::intrinsics::{likely, unlikely};
-use std::io::{BufWriter, Write};
+use std::io::{Write};
 use std::sync::{Arc, Mutex};
 
 pub struct LogFile {
@@ -27,7 +27,7 @@ impl Drop for LogFile {
 
 impl Write for LogFile {
     fn write(&mut self, data: &[u8]) -> std::io::Result<usize> {
-        self.file.lock().unwrap().write_all(data);
+        let _ = self.file.lock().unwrap().write_all(data);
         Ok(data.len())
     }
     fn flush(&mut self) -> std::io::Result<()> {
@@ -46,12 +46,14 @@ impl Clone for LogFile {
     }
 }
 
+#[allow(dead_code)]
 pub struct LogWriter {
     pub inner: LogFile,
     pub buf: [u8; u16::MAX as usize],
     pub bytes_written: usize,
 }
 
+#[allow(dead_code)]
 impl LogWriter {
     pub fn new(file: LogFile) -> Self {
         Self {

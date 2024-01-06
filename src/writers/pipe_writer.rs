@@ -7,12 +7,14 @@ use std::io::{BufWriter, Write};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
+#[allow(dead_code)]
 pub struct PipeWriter {
     pub file: Arc<Mutex<BufWriter<File>>>,
     pub last_write: Arc<Mutex<Instant>>,
     pub cvar: Arc<(Mutex<bool>, Condvar)>
 }
 
+#[allow(dead_code)]
 impl PipeWriter {
     pub fn new(path: String) -> Self {
         let file = File::create(path).unwrap();
@@ -42,7 +44,7 @@ impl PipeWriter {
         }
     }
 
-    pub(crate) fn flush_locked(mut file: &mut MutexGuard<BufWriter<File>>, cvar: Arc<(Mutex<bool>, Condvar)>) {
+    pub(crate) fn flush_locked(file: &mut MutexGuard<BufWriter<File>>, cvar: Arc<(Mutex<bool>, Condvar)>) {
         file.flush().unwrap();
         let (lock, cvar) = &*cvar;
         let mut started = lock.lock().unwrap();

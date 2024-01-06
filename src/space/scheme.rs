@@ -1,4 +1,4 @@
 /// 0 - Size
 /// 
 /// 1 - offset
-pub type SpaceScheme = Box<[(usize, usize)]>;
+pub type TableScheme = Box<[(usize, usize)]>;

@@ -1,22 +1,44 @@
 use crate::bin_types::{BinKey, BinValue};
-use crate::table::table::Table;
+use crate::table::table::{Table, TableEngine};
 
 use crate::disk_storage::storage::DiskStorage;
 use crate::index::Index;
 
 pub struct OnDiskTable<I: Index<BinKey, (u64, u64)>> {
     core: DiskStorage<I>,
+    name: String,
 }
 
 impl<I: Index<BinKey, (u64, u64)>> OnDiskTable<I> {
     pub(crate) fn new(name: String, size: usize, index: I) -> OnDiskTable<I> {
         OnDiskTable {
-            core: DiskStorage::new(name, size, index),
+            core: DiskStorage::new(name.clone(), size, index),
+            name,
         }
     }
 }
 
 impl<I: Index<BinKey, (u64, u64)>> Table for OnDiskTable<I> {
+    #[inline(always)]
+    fn engine(&self) -> TableEngine {
+        TableEngine::OnDisk
+    }
+
+    #[inline(always)]
+    fn name(&self) -> String {
+        self.name.clone()
+    }
+
+    #[inline(always)]
+    fn is_it_logging(&self) -> bool {
+        unreachable!();
+    }
+
+    #[inline(always)]
+    fn cache_duration(&self) -> u64 {
+        unreachable!()
+    }
+
     #[inline(always)]
     fn get(&self, key: &BinKey) -> Option<BinValue> {
         self.core.get(key)
@@ -56,7 +78,7 @@ impl<I: Index<BinKey, (u64, u64)>> Table for OnDiskTable<I> {
         self.core.infos.count() as u64
     }
 
-    fn rise(&mut self, _: u32) {
+    fn rise(&mut self) {
         self.core.rise();
     }
     

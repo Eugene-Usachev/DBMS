@@ -1,16 +1,11 @@
 use std::sync::Arc;
-use std::sync::atomic::Ordering::SeqCst;
 use crate::bin_types::{BinKey, BinValue};
 use crate::index::HashInMemoryIndex;
 use crate::storage::Storage;
-use crate::table::in_memory::InMemoryTable;
-use crate::tests::TABLES_CREATED;
 
+#[cfg(test)]
 pub fn crud(storage: Arc<Storage>) {
-    let number = TABLES_CREATED.fetch_add(1, SeqCst);
-    storage.tables.write().unwrap().push(Box::new(InMemoryTable::new(
-        number as u16, HashInMemoryIndex::new(), "crud".to_string(), false, 0
-    )));
+    let number = Storage::create_in_memory_table(storage.clone(), "crud".to_string(), HashInMemoryIndex::new(), false);
     let mut keys = Vec::with_capacity(10000);
     let mut values = Vec::with_capacity(10000);
     for i in 0..10000 {
