@@ -84,7 +84,7 @@ impl<K, V> Index<K, V> for TreeInMemoryIndex<K, V>
     }
 
     #[inline(always)]
-    fn resize(&self, new_size: usize) {
+    fn resize(&self, _new_size: usize) {
         // All is ok. Nothing to do
     }
 

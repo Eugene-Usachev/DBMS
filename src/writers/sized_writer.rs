@@ -1,4 +1,3 @@
-use std::intrinsics::{likely, unlikely};
 use std::io::{BufWriter, Read, Write};
 use crate::bin_types::{BinKey, BinValue};
 
@@ -17,6 +16,8 @@ impl<T: Write + Read> SizedWriter<T> {
     pub fn write(&mut self, buf: &[u8]) -> std::io::Result<()> {
         self.inner.write_all(buf)
     }
+
+    #[allow(dead_code)]
     #[inline(always)]
     pub fn flush(&mut self) -> std::io::Result<()> {
         self.inner.flush()

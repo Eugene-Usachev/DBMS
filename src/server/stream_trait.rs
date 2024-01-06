@@ -81,8 +81,9 @@ impl Stream for File {
         <File as Write>::write_all(self, buf)
     }
 
+    #[allow(unused_must_use)]
     #[inline(always)]
     fn shutdown(&mut self) -> std::io::Result<()> {
-        File::shutdown(self)
+        <File as Write>::flush(self)
     }
 }

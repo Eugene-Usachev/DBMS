@@ -18,3 +18,10 @@ pub trait Index<K, V>: Sync + Send {
 
 pub const SIZE: usize = 512;
 pub const SIZE_U64: u64 = SIZE as u64;
+
+#[repr(u8)]
+pub enum IndexType {
+    Hash = 0u8,
+    BTree = 1u8,
+    Serial = 2u8,
+}

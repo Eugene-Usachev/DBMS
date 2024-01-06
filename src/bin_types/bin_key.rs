@@ -47,6 +47,7 @@ impl<'a> BinKey {
     }
 
     #[inline(always)]
+    #[allow(dead_code)]
     pub fn deref_all(&self) -> &'a [u8] {
         let len = self.len();
         self.deref_all_with_len(len)

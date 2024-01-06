@@ -1,8 +1,4 @@
 use std::intrinsics::likely;
-use std::io::Write;
-use std::sync::Arc;
-use crate::bin_types::BinKey;
-use crate::writers::PipeWriter;
 
 #[inline(always)]
 pub fn get_size_for_key_len(key_len: usize) -> usize {

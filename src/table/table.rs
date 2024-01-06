@@ -1,6 +1,11 @@
 use crate::bin_types::{BinKey, BinValue};
 
 pub trait Table: Sync + Send {
+    fn engine(&self) -> TableEngine;
+    fn name(&self) -> String;
+    fn is_it_logging(&self) -> bool;
+    fn cache_duration(&self) -> u64;
+
     fn get(&self, key: &BinKey) -> Option<BinValue>;
     fn get_and_reset_cache_time(&self, key: &BinKey) -> Option<BinValue>;
     fn set(&self, key: BinKey, value: BinValue, log_buf: &mut [u8], log_offset: &mut usize) -> Option<BinValue>;
@@ -15,11 +20,13 @@ pub trait Table: Sync + Send {
     fn count(&self) -> u64;
 
     fn dump(&self);
-    fn rise(&mut self, number_of_dumps: u32);
+    fn rise(&mut self);
     fn invalid_cache(&self);
 }
 
-pub type SpaceEngineType = u8;
-pub const CACHE: SpaceEngineType = 0;
-pub const IN_MEMORY: SpaceEngineType = 1;
-pub const ON_DISK: SpaceEngineType = 2;
+#[repr(u8)]
+pub enum TableEngine {
+    InMemory = 0,
+    OnDisk = 1,
+    CACHE = 2
+}

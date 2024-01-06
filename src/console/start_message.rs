@@ -1,3 +1,4 @@
+#[allow(dead_code)]
 pub(crate) fn start_message() {
     let welcome_message = format!("
     ------------------------------------------------------------------

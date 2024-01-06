@@ -1,12 +1,10 @@
 use std::intrinsics::{likely, unlikely};
 use std::io::Write;
 use std::net::{TcpListener};
-use std::ops::{DerefMut};
 #[cfg(not(target_os = "windows"))]
 use std::os::unix::net::UnixListener;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc};
 use std::thread;
-use tokio::io::BufWriter;
 
 use crate::constants::actions;
 use crate::constants::size::{READ_BUFFER_SIZE, READ_BUFFER_SIZE_WITHOUT_SIZE, WRITE_BUFFER_SIZE};
@@ -15,10 +13,9 @@ use crate::storage::storage::Storage;
 use crate::utils::fastbytes::uint;
 
 use crate::server::reactions::status::{ping};
-use crate::server::reactions::table::{create_table_cache, create_table_in_memory, create_table_on_disk, get_spaces_names};
-use crate::server::reactions::work_with_spaces::{delete, get, get_and_reset_cache_time, insert, set};
+use crate::server::reactions::table::{create_table_cache, create_table_in_memory, create_table_on_disk, get_tables_names};
+use crate::server::reactions::work_with_tables::{delete, get, get_and_reset_cache_time, insert, set};
 use crate::server::stream_trait::Stream;
-use crate::writers::{LogFile, LogWriter};
 
 pub struct Server {
     storage: Arc<Storage>,
@@ -45,8 +42,8 @@ impl Server {
             return;
         }
         self.is_running = true;
-        let storage = self.storage.clone();
         #[cfg(not(target_os = "windows"))] {
+            let storage = self.storage.clone();
             let unix_port = self.unix_port;
             thread::spawn(move || {
                 let listener_ = UnixListener::bind(format!("dash_dbms:{}", unix_port));
@@ -58,7 +55,7 @@ impl Server {
                 };
                 println!("Server tcp listening on port {}", unix_port);
                 for stream in listener.incoming() {
-                    let storage= storage.clone();
+                    let storage = storage.clone();
                     thread::spawn(move || {
                         match stream {
                             Ok(mut stream) => {
@@ -96,7 +93,7 @@ impl Server {
     }
 
     #[inline(always)]
-    fn handle_client(storage: Arc<Storage>, mut stream: &mut impl Stream) {
+    fn handle_client(storage: Arc<Storage>, stream: &mut impl Stream) {
         let mut read_buffer = [0u8; READ_BUFFER_SIZE];
         let mut write_buffer = [0u8; WRITE_BUFFER_SIZE];
         let mut log_buffer = [0u8; WRITE_BUFFER_SIZE];
@@ -159,10 +156,10 @@ impl Server {
         return match message[0] {
             actions::PING => ping(stream, write_buf, write_offset),
 
-            actions::CREATE_SPACE_IN_MEMORY => create_table_in_memory(stream, storage, message, write_buf, write_offset, log_buf, log_offset),
-            actions::CREATE_SPACE_CACHE => create_table_cache(stream, storage, message, write_buf, write_offset, log_buf, log_offset),
-            actions::CREATE_SPACE_ON_DISK => create_table_on_disk(stream, storage, message, write_buf, write_offset, log_buf, log_offset),
-            actions::GET_SPACES_NAMES => get_spaces_names(stream, storage, write_buf, write_offset),
+            actions::CREATE_TABLE_IN_MEMORY => create_table_in_memory(stream, storage, message, write_buf, write_offset, log_buf, log_offset),
+            actions::CREATE_TABLE_CACHE => create_table_cache(stream, storage, message, write_buf, write_offset, log_buf, log_offset),
+            actions::CREATE_TABLE_ON_DISK => create_table_on_disk(stream, storage, message, write_buf, write_offset, log_buf, log_offset),
+            actions::GET_TABLES_NAMES => get_tables_names(stream, storage, write_buf, write_offset),
 
             actions::GET => get(stream, storage, message, write_buf, write_offset),
             actions::GET_AND_RESET_CACHE_TIME => get_and_reset_cache_time(stream, storage, message, write_buf, write_offset),
