@@ -1,11 +1,12 @@
 use std::sync::atomic::{AtomicU32, AtomicU64};
 use std::sync::atomic::Ordering::SeqCst;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, RwLock, RwLockWriteGuard};
 use std::{env, thread};
+use std::cell::UnsafeCell;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use crate::table::table::{Table, TableEngine};
 use std::fs::{File, OpenOptions};
-use std::intrinsics::unlikely;
+use std::intrinsics::{unlikely};
 use std::io::{Read, Write};
 use std::path::PathBuf;
 use crate::bin_types::{BinKey, BinValue};
@@ -21,7 +22,16 @@ use crate::writers::{LogFile};
 pub static NOW_MINUTES: AtomicU64 = AtomicU64::new(0);
 
 pub struct Storage {
-    pub tables: RwLock<Vec<Box<dyn Table + 'static>>>,
+    /// SAFETY:
+    ///
+    /// 1 - The tables vector has the same lifetime as the storage and keep the capacity all lifetime of the storage;
+    ///
+    /// 2 - We never delete the tables from the tables vector, only mark them as deleted;
+    ///
+    /// 3 - We never change table numbers;
+    ///
+    /// 4 - We push new tables only when tables_names is locked.
+    pub tables: UnsafeCell<Vec<Box<dyn Table + 'static>>>,
     pub tables_names: RwLock<Vec<String>>,
     pub number_of_dumps: Arc<AtomicU32>,
     pub last_tables_count: AtomicU32,
@@ -35,8 +45,11 @@ pub struct Storage {
     pub dump_interval: u32,
 }
 
+unsafe impl Send for Storage {}
+unsafe impl Sync for Storage {}
+
 impl Storage {
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         let path: PathBuf = ["..", constants::paths::PERSISTENCE_DIR].iter().collect();
         std::fs::create_dir_all(path).expect("[Error] Failed to create the persistence directory");
         let dump_interval = match env::var("DUMP_INTERVAL") {
@@ -81,8 +94,11 @@ impl Storage {
             .unwrap();
         let log_file = LogFile::new(log_file);
 
+        // TODO: r
+        println!("box table size is {}", std::mem::size_of::<Box<dyn Table + 'static>>());
+
         Self {
-            tables: RwLock::new(Vec::with_capacity(1)),
+            tables: UnsafeCell::new(Vec::with_capacity(4096)),
             tables_names: RwLock::new(Vec::with_capacity(1)),
             cache_tables_indexes: RwLock::new(Vec::with_capacity(1)),
             number_of_dumps: Arc::new(AtomicU32::new(number_of_dumps)),
@@ -116,7 +132,10 @@ impl Storage {
         let storage_for_dump = storage.clone();
         let last_tables_count = storage_for_dump.last_tables_count.load(SeqCst);
         let join = thread::spawn(move || {
-            let tables = storage_for_dump.tables.read().unwrap();
+            let tables;
+            unsafe {
+                tables = &*storage_for_dump.tables.get() as &Vec<Box<dyn Table>>;
+            }
             for (number, table) in tables.iter().enumerate() {
                 if number as u32 >= last_tables_count {
                     let engine = table.engine();
@@ -138,7 +157,9 @@ impl Storage {
         });
         join.join().unwrap();
 
-        storage.last_tables_count.store(storage.tables.read().unwrap().len() as u32, SeqCst);
+        unsafe {
+            storage.last_tables_count.store((*storage.tables.get()).len() as u32, SeqCst);
+        }
 
         let file_name = format!("log{}.bin", old_number_of_dumps);
         let path: PathBuf = ["..", constants::paths::PERSISTENCE_DIR, &file_name].iter().collect();
@@ -181,7 +202,10 @@ impl Storage {
                 let storage = storage.clone();
                 tokio::spawn(async move {
                     let cache_tables_indexes = storage.cache_tables_indexes.read().unwrap();
-                    let tables = storage.tables.read().unwrap();
+                    let tables;
+                    unsafe {
+                        tables = (&*storage.tables.get()) as &Vec<Box<dyn Table>>;
+                    }
                     for index in cache_tables_indexes.iter() {
                         let table = tables.get(*index).unwrap();
                         table.invalid_cache();
@@ -209,8 +233,7 @@ impl Storage {
         file.write_all(bin_config).unwrap();
     }
 
-    fn insert_table_name_and_get_number(storage: Arc<Self>, name: &str) -> (usize, bool) {
-        let mut tables_names = storage.tables_names.write().unwrap();
+    fn insert_table_name_and_get_number(tables_names: &mut RwLockWriteGuard<Vec<String>>, name: &str) -> (usize, bool) {
         let len = tables_names.len();
         for i in 0..len {
             if tables_names[i] == name {
@@ -222,7 +245,8 @@ impl Storage {
     }
 
     pub fn create_in_memory_table<I: Index<BinKey, BinValue> + 'static>(storage: Arc<Storage>, name: String, index: I, is_it_logging: bool) -> usize {
-        let (number, is_exist) = Self::insert_table_name_and_get_number(storage.clone(), &name);
+        let mut lock = storage.tables_names.write().unwrap();
+        let (number, is_exist) = Self::insert_table_name_and_get_number(&mut lock, &name);
         if is_exist {
             return number;
         }
@@ -233,7 +257,11 @@ impl Storage {
             is_it_logging,
             storage.number_of_dumps.clone(),
         );
-        storage.tables.write().unwrap().push(Box::new(table));
+        unsafe {
+            (*storage.tables.get()).push(Box::new(table));
+        }
+
+        drop(lock);
 
         return number;
     }
@@ -250,7 +278,8 @@ impl Storage {
     }
 
     pub fn create_on_disk_table<I: Index<BinKey, (u64, u64)> + 'static>(storage: Arc<Storage>, name: String, index: I) -> usize {
-        let (number, is_exist) = Self::insert_table_name_and_get_number(storage.clone(), &name);
+        let mut lock = storage.tables_names.write().unwrap();
+        let (number, is_exist) = Self::insert_table_name_and_get_number(&mut lock, &name);
         if is_exist {
             return number;
         }
@@ -259,7 +288,11 @@ impl Storage {
             512,
             index
         );
-        storage.tables.write().unwrap().push(Box::new(table));
+        unsafe {
+            (*storage.tables.get()).push(Box::new(table));
+        }
+
+        drop(lock);
 
         return number;
     }
@@ -273,7 +306,8 @@ impl Storage {
         Self::write_table_config_on_disk(storage.clone(), &buf);
     }
     pub fn create_cache_table<I: Index<BinKey, (u64, BinValue)> + 'static>(storage: Arc<Storage>, name: String, index: I, cache_duration: u64, is_it_logging: bool) -> usize {
-        let (number, is_exist) = Self::insert_table_name_and_get_number(storage.clone(), &name);
+        let mut lock = storage.tables_names.write().unwrap();
+        let (number, is_exist) = Self::insert_table_name_and_get_number(&mut lock, &name);
         if is_exist {
             return number;
         }
@@ -285,8 +319,12 @@ impl Storage {
             is_it_logging,
             storage.number_of_dumps.clone(),
         );
-        storage.tables.write().unwrap().push(Box::new(table));
+        unsafe {
+            (*storage.tables.get()).push(Box::new(table));
+        }
         storage.cache_tables_indexes.write().unwrap().push(number);
+
+        drop(lock);
 
         return number;
     }
@@ -490,8 +528,11 @@ impl Storage {
         }
 
         let storage_for_rise = storage.clone();
-        let mut tables = storage_for_rise.tables.write().unwrap();
-        let mut joins = Vec::with_capacity(tables.len());
+        let mut tables;
+        unsafe {
+            tables = (&mut *storage_for_rise.tables.get()) as &mut Vec<Box<dyn Table>>;
+        }
+        let mut joins = Vec::with_capacity((tables).len());
         for table in tables.iter_mut() {
             unsafe {
                 let table_ptr = std::mem::transmute::<&mut Box<dyn Table>, &'static mut Box<dyn Table>>(table);
@@ -545,7 +586,10 @@ impl Storage {
         let mut value_offset;
         let mut number;
         let mut cache_duration;
-        let tables = storage.tables.write().unwrap();
+        let tables;
+        unsafe {
+            tables = (&mut *storage.tables.get()) as &mut Vec<Box<dyn Table>>;
+        }
 
         'read: loop {
             if unlikely(total_read == file_len) {

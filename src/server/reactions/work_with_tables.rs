@@ -9,7 +9,10 @@ use crate::utils::fastbytes::uint;
 
 #[inline(always)]
 pub fn get(stream: &mut impl Stream, storage: Arc<Storage>, message: &[u8], write_buf: &mut [u8], write_offset: usize) -> usize {
-    let tables = storage.tables.read().unwrap();
+    let tables;
+    unsafe {
+        tables = &*storage.tables.get();
+    }
     match tables.get(uint::u16(&message[1..3]) as usize) {
         Some(table) => unsafe {
             let res = table.get(&BinKey::new(&message[3..]));
@@ -27,7 +30,10 @@ pub fn get(stream: &mut impl Stream, storage: Arc<Storage>, message: &[u8], writ
 
 #[inline(always)]
 pub fn get_and_reset_cache_time(stream: &mut impl Stream, storage: Arc<Storage>, message: &[u8], write_buf: &mut [u8], write_offset: usize) -> usize {
-    let tables = storage.tables.read().unwrap();
+    let tables;
+    unsafe {
+        tables = &*storage.tables.get();
+    }
     match tables.get(uint::u16(&message[1..3]) as usize) {
         Some(table) => unsafe {
             let res = table.get_and_reset_cache_time(&BinKey::new(&message[3..]));
@@ -45,7 +51,10 @@ pub fn get_and_reset_cache_time(stream: &mut impl Stream, storage: Arc<Storage>,
 
 #[inline(always)]
 pub fn insert(stream: &mut impl Stream, storage: Arc<Storage>, message: &[u8], write_buf: &mut [u8], write_offset: usize, log_buf: &mut [u8], log_offset: &mut usize) -> usize {
-    let tables = storage.tables.read().unwrap();
+    let tables;
+    unsafe {
+        tables = &*storage.tables.get();
+    }
     let key_size = uint::u16(&message[3..5]) as usize;
     let key = &message[5..5+key_size];
     let value = &message[5+key_size..];
@@ -62,7 +71,10 @@ pub fn insert(stream: &mut impl Stream, storage: Arc<Storage>, message: &[u8], w
 
 #[inline(always)]
 pub fn set(stream: &mut impl Stream, storage: Arc<Storage>, message: &[u8], write_buf: &mut [u8], write_offset: usize, log_buf: &mut [u8], log_offset: &mut usize) -> usize {
-    let tables = storage.tables.read().unwrap();
+    let tables;
+    unsafe {
+        tables = &*storage.tables.get();
+    }
     let key_size = uint::u16(&message[3..5]) as usize;
     let key = &message[5..5+key_size];
     let value = &message[5+key_size..];
@@ -79,7 +91,10 @@ pub fn set(stream: &mut impl Stream, storage: Arc<Storage>, message: &[u8], writ
 
 #[inline(always)]
 pub fn delete(stream: &mut impl Stream, storage: Arc<Storage>, message: &[u8], write_buf: &mut [u8], write_offset: usize, log_buf: &mut [u8], log_offset: &mut usize) -> usize {
-    let tables = storage.tables.read().unwrap();
+    let tables;
+    unsafe {
+        tables = &*storage.tables.get();
+    }
     let key = &message[3..];
     match tables.get(uint::u16(&message[1..3]) as usize) {
         Some(table) => {

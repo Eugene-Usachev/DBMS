@@ -4,11 +4,12 @@ use crate::bin_types::{BinKey, BinValue};
 use crate::index::HashInMemoryIndex;
 use crate::storage::Storage;
 
-// #[cfg(test)]
+#[cfg(test)]
 pub fn crud_bench(storage: Arc<Storage>) {
     const N: usize = 10_400_000;
     const PAR: usize = 256;
     const COUNT: usize = N / PAR;
+
 
     let number = Storage::create_in_memory_table(storage.clone(), "crud_bench".to_string(), HashInMemoryIndex::new(), false);
     let mut keys = Vec::with_capacity(N);
@@ -20,16 +21,47 @@ pub fn crud_bench(storage: Arc<Storage>) {
     let keys = Arc::new(keys);
     let values = Arc::new(values);
 
+    // necessary for tests, because first test in the Docker always slows down
+    {
+        let mut joins = Vec::with_capacity(PAR);
+        for i in 0..PAR {
+            let storage = storage.clone();
+            let keys = keys.clone();
+            let values = values.clone();
+            joins.push(std::thread::spawn(move || unsafe{
+                for j in i * COUNT..(i + 1) * COUNT {
+                    (*storage.tables.get())[number].set(keys[j].clone(), values[j].clone(), &mut [], &mut 0);
+                }
+            }));
+        }
+        for join in joins {
+            join.join().unwrap();
+        }
+
+        let mut joins = Vec::with_capacity(PAR);
+        for i in 0..PAR {
+            let storage = storage.clone();
+            let keys = keys.clone();
+            joins.push(std::thread::spawn(move || unsafe {
+                for j in i * COUNT..(i + 1) * COUNT {
+                    black_box((*storage.tables.get())[number].delete(&keys[j], &mut [], &mut 0));
+                }
+            }));
+        }
+        for join in joins {
+            join.join().unwrap();
+        }
+    }
+
     let mut joins = Vec::with_capacity(PAR);
     let start = std::time::Instant::now();
     for i in 0..PAR {
         let storage = storage.clone();
         let keys = keys.clone();
         let values = values.clone();
-        joins.push(std::thread::spawn(move || {
-            let tables = &mut storage.tables.read().unwrap();
+        joins.push(std::thread::spawn(move || unsafe {
             for j in i * COUNT..(i + 1) * COUNT {
-                tables[number].insert(keys[j].clone(), values[j].clone(), &mut [], &mut 0);
+                (*storage.tables.get())[number].insert(keys[j].clone(), values[j].clone(), &mut [], &mut 0);
             }
         }));
     }
@@ -43,10 +75,9 @@ pub fn crud_bench(storage: Arc<Storage>) {
     for i in 0..PAR {
         let storage = storage.clone();
         let keys = keys.clone();
-        joins.push(std::thread::spawn(move || {
-            let tables = &mut storage.tables.read().unwrap();
+        joins.push(std::thread::spawn(move || unsafe {
             for j in i * COUNT..(i + 1) * COUNT {
-                black_box(tables[number].get(&keys[j]));
+                black_box((*storage.tables.get())[number].get(&keys[j]));
             }
         }));
     }
@@ -61,10 +92,9 @@ pub fn crud_bench(storage: Arc<Storage>) {
         let storage = storage.clone();
         let keys = keys.clone();
         let values = values.clone();
-        joins.push(std::thread::spawn(move || {
-            let tables = &mut storage.tables.read().unwrap();
+        joins.push(std::thread::spawn(move || unsafe {
             for j in i * COUNT..(i + 1) * COUNT {
-                tables[number].set(keys[j].clone(), values[j].clone(), &mut [], &mut 0);
+                (*storage.tables.get())[number].set(keys[j].clone(), values[j].clone(), &mut [], &mut 0);
             }
         }));
     }
@@ -78,10 +108,9 @@ pub fn crud_bench(storage: Arc<Storage>) {
     for i in 0..PAR {
         let storage = storage.clone();
         let keys = keys.clone();
-        joins.push(std::thread::spawn(move || {
-            let tables = &mut storage.tables.read().unwrap();
+        joins.push(std::thread::spawn(move || unsafe {
             for j in i * COUNT..(i + 1) * COUNT {
-                black_box(tables[number].delete(&keys[j], &mut [], &mut 0));
+                black_box((*storage.tables.get())[number].delete(&keys[j], &mut [], &mut 0));
             }
         }));
     }
