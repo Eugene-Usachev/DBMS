@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use tokio::io::AsyncWriteExt;
 use crate::bin_types::{BinKey, BinValue};
 use crate::index::HashInMemoryIndex;
 use crate::storage::Storage;
@@ -14,31 +15,44 @@ pub fn crud(storage: Arc<Storage>) {
     }
 
     for i in 0..10000 {
-        storage.tables.write().unwrap()[number].insert(keys[i].clone(), values[i].clone(), &mut [], &mut 0);
+        unsafe {
+            (*storage.tables.get())[number].insert(keys[i].clone(), values[i].clone(), &mut [], &mut 0);
+        }
+
     }
 
     for i in 0..10000 {
-        assert_eq!(values[i].clone(), storage.tables.write().unwrap()[number].get(&keys[i]).unwrap());
+        unsafe {
+            assert_eq!(values[i].clone(), (*storage.tables.get())[number].get(&keys[i]).unwrap());
+        }
     }
 
     println!("crud: get and insert were successful");
 
     for i in 0..10000 {
-        storage.tables.write().unwrap()[number].delete(&keys[i], &mut [], &mut 0);
+        unsafe {
+            (*storage.tables.get())[number].delete(&keys[i], &mut [], &mut 0);
+        }
     }
 
     for i in 0..10000 {
-        assert_eq!(None, storage.tables.write().unwrap()[number].get(&keys[i]));
+        unsafe {
+            assert_eq!(None, (*storage.tables.get())[number].get(&keys[i]));
+        }
     }
 
     println!("crud: delete was successful");
 
     for i in 0..10000 {
-        storage.tables.write().unwrap()[number].set(keys[i].clone(), values[i].clone(), &mut [], &mut 0);
+        unsafe {
+            (*storage.tables.get())[number].set(keys[i].clone(), values[i].clone(), &mut [], &mut 0);
+        }
     }
 
     for i in 0..10000 {
-        assert_eq!(values[i].clone(), storage.tables.write().unwrap()[number].get(&keys[i]).unwrap());
+        unsafe {
+            assert_eq!(values[i].clone(), (*storage.tables.get())[number].get(&keys[i]).unwrap());
+        }
     }
 
     println!("crud: set was successful");

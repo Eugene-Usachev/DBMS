@@ -19,7 +19,10 @@ pub fn persistence(storage: Arc<Storage>) {
 fn test_dump(storage: Arc<Storage>) {
     let number1 = Storage::create_in_memory_table(storage.clone(), "persistence 1".to_string(), HashInMemoryIndex::new(), false);
     let number2 = Storage::create_in_memory_table(storage.clone(), "persistence 2".to_string(), HashInMemoryIndex::new(), false);
-    let mut tables = storage.tables.write().unwrap();
+    let mut tables;
+    unsafe {
+        tables = (&*storage.tables.get())
+    };
 
 
     let mut keys = Vec::with_capacity(10000);
@@ -40,22 +43,21 @@ fn test_dump(storage: Arc<Storage>) {
             tables[number2].delete(&keys[i], &mut [], &mut 0);
         }
     }
-    drop(tables);
 
     Storage::dump(storage.clone());
-    let mut tables = storage.tables.write().unwrap();
+    let mut tables;
+    unsafe {
+        tables = (&mut *storage.tables.get())
+    };
 
     tables.remove(number1);
     tables.remove(number2 - 1);
-    drop(tables);
     let mut tables_names = storage.tables_names.write().unwrap();
     tables_names.remove(number1);
     tables_names.remove(number2 - 1);
     drop(tables_names);
 
     Storage::rise(storage.clone());
-
-    let mut tables = storage.tables.write().unwrap();
 
     let count = tables[number1].count();
     if count != 5000 {
@@ -83,7 +85,10 @@ fn test_dump(storage: Arc<Storage>) {
 fn test_dump_and_log(storage: Arc<Storage>) {
     let number1 = Storage::create_in_memory_table(storage.clone(), "persistence 3".to_string(), HashInMemoryIndex::new(), true);
     let number2 = Storage::create_in_memory_table(storage.clone(), "persistence 4".to_string(), HashInMemoryIndex::new(), true);
-    let mut tables = storage.tables.write().unwrap();
+    let mut tables;
+    unsafe {
+        tables = (&mut *storage.tables.get())
+    };
 
     let mut keys = Vec::with_capacity(10000);
     let mut values = Vec::with_capacity(10000);
@@ -107,9 +112,7 @@ fn test_dump_and_log(storage: Arc<Storage>) {
         }
     }
 
-    drop(tables);
     Storage::dump(storage.clone());
-    let mut tables = storage.tables.write().unwrap();
 
     for i in 5000..10000 {
         tables[number1].insert(keys[i].clone(), values[i].clone(), &mut log_buffer, &mut log_buffer_offset);
@@ -128,14 +131,12 @@ fn test_dump_and_log(storage: Arc<Storage>) {
 
     tables.remove(number1);
     tables.remove(number2 - 1);
-    drop(tables);
     let mut tables_names = storage.tables_names.write().unwrap();
     tables_names.remove(number1);
     tables_names.remove(number2 - 1);
     drop(tables_names);
 
     Storage::rise(storage.clone());
-    let mut tables = storage.tables.write().unwrap();
 
     let count = tables[number1].count();
     if count != 5000 {
