@@ -18,7 +18,7 @@ pub fn create_table_in_memory(stream: &mut impl Stream, storage: Arc<Storage>, m
     let name = String::from_utf8(message[4..].to_vec()).unwrap();
     let name_len = name.len();
     {
-        let mut buf = vec![0; name_len + 3];
+        let mut buf = vec![0; name_len + 4];
         buf[0] = actions::CREATE_TABLE_IN_MEMORY;
         buf[1] = name_len as u8;
         buf[2] = (name_len >> 8) as u8;
@@ -69,7 +69,7 @@ pub fn create_table_cache(stream: &mut impl Stream, storage: Arc<Storage>, messa
     let name = String::from_utf8(message[12..].to_vec()).unwrap();
     let name_len = name.len();
     {
-        let mut buf = vec![0; name_len + 3];
+        let mut buf = vec![0; name_len + 12];
         buf[0] = actions::CREATE_TABLE_CACHE;
         buf[1] = name_len as u8;
         buf[2] = (name_len >> 8) as u8;

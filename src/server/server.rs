@@ -46,7 +46,7 @@ impl Server {
             let storage = self.storage.clone();
             let unix_port = self.unix_port;
             thread::spawn(move || {
-                let listener_ = UnixListener::bind(format!("dash_dbms:{}", unix_port));
+                let listener_ = UnixListener::bind(format!("dbms:{}", unix_port));
                 let listener = match listener_ {
                     Ok(listener) => listener,
                     Err(e) => {
@@ -69,7 +69,7 @@ impl Server {
                 }
             });
         }
-        let listener_ = TcpListener::bind(format!("dash_dbms:{}", self.tcp_port));
+        let listener_ = TcpListener::bind(format!("dbms:{}", self.tcp_port));
         let listener = match listener_ {
             Ok(listener) => listener,
             Err(e) => {
