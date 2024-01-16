@@ -1,4 +1,4 @@
-use std::fs::{DirBuilder, File, OpenOptions};
+use std::fs::{DirBuilder, File};
 use std::intrinsics::{unlikely};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::PathBuf;
@@ -9,6 +9,7 @@ use crate::bin_types::{BinKey, BinValue};
 use crate::constants;
 use crate::constants::actions;
 use crate::index::Index;
+use crate::scheme::scheme;
 use crate::writers::{SizedWriter, write_to_log_with_key, write_to_log_with_key_and_value};
 use crate::table::table::{Table, TableEngine};
 use crate::utils::fastbytes::uint;
@@ -20,11 +21,21 @@ pub struct InMemoryTable<I: Index<BinKey, BinValue>> {
     /// Table will try to create a directory if it is false
     was_dumped: AtomicBool,
     name: String,
-    is_it_logging: bool
+    is_it_logging: bool,
+    scheme: scheme::Scheme,
+    user_scheme: Box<[u8]>,
 }
 
 impl<I: Index<BinKey, BinValue>> InMemoryTable<I> {
-    pub fn new(number: u16, index: I, name: String, is_it_logging: bool, number_of_dumps: Arc<AtomicU32>) -> InMemoryTable<I> {
+    pub fn new(
+        number: u16,
+        index: I,
+        name: String,
+        is_it_logging: bool,
+        number_of_dumps: Arc<AtomicU32>,
+        scheme: scheme::Scheme,
+        user_scheme: Box<[u8]>,
+    ) -> InMemoryTable<I> {
 
         InMemoryTable {
             number,
@@ -32,7 +43,9 @@ impl<I: Index<BinKey, BinValue>> InMemoryTable<I> {
             was_dumped: AtomicBool::new(false),
             number_of_dumps,
             name,
-            is_it_logging
+            is_it_logging,
+            scheme,
+            user_scheme,
         }
     }
 }
@@ -108,6 +121,11 @@ impl<I: Index<BinKey, BinValue>> Table for InMemoryTable<I> {
     #[inline(always)]
     fn count(&self) -> u64 {
         self.index.count() as u64
+    }
+
+    #[inline(always)]
+    fn user_scheme(&self) -> Box<[u8]> {
+        self.user_scheme.clone()
     }
 
     fn dump(&self) {

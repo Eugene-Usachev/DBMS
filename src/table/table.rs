@@ -19,6 +19,8 @@ pub trait Table: Sync + Send {
     fn delete_without_log(&self, key: &BinKey);
     fn count(&self) -> u64;
 
+    /// user_scheme is a scheme, that we get from user. We will not send `scheme::Scheme` to user.
+    fn user_scheme(&self) -> Box<[u8]>;
     fn dump(&self);
     fn rise(&mut self);
     fn invalid_cache(&self);

@@ -17,6 +17,7 @@ mod disk_storage;
 mod writers;
 mod server;
 mod tests;
+mod scheme;
 
 #[cfg(not(test))]
 #[tokio::main]

@@ -2,6 +2,7 @@ use std::intrinsics::unlikely;
 use std::sync::Arc;
 use crate::constants::actions;
 use crate::index::HashInMemoryIndex;
+use crate::scheme::scheme::scheme_from_bytes;
 use crate::server::server::write_msg;
 use crate::server::stream_trait::Stream;
 use crate::storage::storage::Storage;
@@ -10,12 +11,20 @@ use crate::writers::{write_to_log_with_slice};
 
 #[inline(always)]
 pub fn create_table_in_memory(stream: &mut impl Stream, storage: Arc<Storage>, message: &[u8], write_buf: &mut [u8], write_offset: usize, log_buf: &mut [u8], log_offset: &mut usize) -> usize {
-    if unlikely(message.len() < 5) {
+    if unlikely(message.len() < 7) {
         return write_msg(stream, write_buf, write_offset, &[actions::BAD_REQUEST]);
     }
-    let size = uint::u16(&message[1..3]);
-    let is_it_logging = message[3] != 0;
-    let name = String::from_utf8(message[4..].to_vec()).unwrap();
+    let is_it_logging = message[1] != 0;
+    let scheme_len = ((message[3] as u16) << 8 | message[2] as u16) as usize;
+    if unlikely(scheme_len + 4 + 2 > message.len()) {
+        return write_msg(stream, write_buf, write_offset, &[actions::BAD_REQUEST]);
+    }
+    let user_scheme = &message[4..4 + scheme_len as usize];
+    let scheme = scheme_from_bytes(user_scheme);
+    if unlikely(scheme.is_err()) {
+        return write_msg(stream, write_buf, write_offset, &[actions::BAD_REQUEST]);
+    }
+    let name = String::from_utf8(message[4 + scheme_len..].to_vec()).unwrap();
     let name_len = name.len();
     {
         let mut buf = vec![0; name_len + 4];
@@ -23,11 +32,19 @@ pub fn create_table_in_memory(stream: &mut impl Stream, storage: Arc<Storage>, m
         buf[1] = name_len as u8;
         buf[2] = (name_len >> 8) as u8;
         buf[3] = if is_it_logging { 1 } else { 0 };
-        buf[4..].copy_from_slice(name.as_bytes());
+        let mut offset = 4;
+        buf[offset..offset + name_len].copy_from_slice(name.as_bytes());
+        offset += name_len;
+        buf[offset] = scheme_len as u8;
+        offset += 1;
+        buf[offset] = (scheme_len >> 8) as u8;
+        offset += 1;
+        buf[offset..].copy_from_slice(user_scheme);
         write_to_log_with_slice(log_buf, log_offset, &buf);
     }
 
-    let l = Storage::create_in_memory_table(storage.clone(), name, HashInMemoryIndex::new(), is_it_logging);
+
+    let l = Storage::create_in_memory_table(storage.clone(), name, HashInMemoryIndex::new(), is_it_logging, scheme.unwrap(), user_scheme);
     if unlikely(l == (u16::MAX - 1u16) as usize) {
         return write_msg(stream, write_buf, write_offset, &[actions::BAD_REQUEST]);
     }
@@ -39,19 +56,34 @@ pub fn create_table_on_disk(stream: &mut impl Stream, storage: Arc<Storage>, mes
     if unlikely(message.len() < 5) {
         return write_msg(stream, write_buf, write_offset, &[actions::BAD_REQUEST]);
     }
-    let size = uint::u16(&message[1..3]);
-    let name = String::from_utf8(message[3..].to_vec()).unwrap();
+    let scheme_len = (message[2] as u16) << 8 | message[1] as u16;
+    if unlikely(scheme_len as usize + 3 + 2 > message.len()) {
+        return write_msg(stream, write_buf, write_offset, &[actions::BAD_REQUEST]);
+    }
+    let user_scheme = &message[4..4 + scheme_len as usize];
+    let scheme = scheme_from_bytes(user_scheme);
+    if unlikely(scheme.is_err()) {
+        return write_msg(stream, write_buf, write_offset, &[actions::BAD_REQUEST]);
+    }
+    let name = String::from_utf8(message[1..].to_vec()).unwrap();
     let name_len = name.len();
     {
         let mut buf = vec![0; name_len + 3];
         buf[0] = actions::CREATE_TABLE_ON_DISK;
         buf[1] = name_len as u8;
         buf[2] = (name_len >> 8) as u8;
-        buf[3..].copy_from_slice(name.as_bytes());
+        let mut offset = 3;
+        buf[offset..offset + name_len].copy_from_slice(name.as_bytes());
+        offset += name_len;
+        buf[offset] = scheme_len as u8;
+        offset += 1;
+        buf[offset] = (scheme_len >> 8) as u8;
+        offset += 1;
+        buf[offset..].copy_from_slice(user_scheme);
         write_to_log_with_slice(log_buf, log_offset, &buf);
     }
 
-    let l = Storage::create_on_disk_table(storage.clone(), name, HashInMemoryIndex::new());
+    let l = Storage::create_on_disk_table(storage.clone(), name, HashInMemoryIndex::new(), scheme.unwrap(), user_scheme);
     if unlikely(l == (u16::MAX - 1u16) as usize) {
         return write_msg(stream, write_buf, write_offset, &[actions::BAD_REQUEST]);
     }
@@ -60,13 +92,21 @@ pub fn create_table_on_disk(stream: &mut impl Stream, storage: Arc<Storage>, mes
 
 #[inline(always)]
 pub fn create_table_cache(stream: &mut impl Stream, storage: Arc<Storage>, message: &[u8], write_buf: &mut [u8], write_offset: usize, log_buf: &mut [u8], log_offset: &mut usize) -> usize {
-    if unlikely(message.len() < 9) {
+    if unlikely(message.len() < 11) {
         return write_msg(stream, write_buf, write_offset, &[actions::BAD_REQUEST]);
     }
-    let size = uint::u16(&message[1..3]);
-    let is_it_logging = message[3] != 0;
-    let cache_duration = uint::u64(&message[4..12]);
-    let name = String::from_utf8(message[12..].to_vec()).unwrap();
+    let is_it_logging = message[1] != 0;
+    let cache_duration = uint::u64(&message[2..10]);
+    let scheme_len = ((message[11] as u16) << 8 | message[10] as u16) as usize;
+    if unlikely(scheme_len + 12 + 2 > message.len()) {
+        return write_msg(stream, write_buf, write_offset, &[actions::BAD_REQUEST]);
+    }
+    let user_scheme = &message[12..12 + scheme_len];
+    let scheme = scheme_from_bytes(user_scheme);
+    if unlikely(scheme.is_err()) {
+        return write_msg(stream, write_buf, write_offset, &[actions::BAD_REQUEST]);
+    }
+    let name = String::from_utf8(message[12 + scheme_len..].to_vec()).unwrap();
     let name_len = name.len();
     {
         let mut buf = vec![0; name_len + 12];
@@ -82,11 +122,18 @@ pub fn create_table_cache(stream: &mut impl Stream, storage: Arc<Storage>, messa
         buf[9] = (cache_duration >> 16) as u8;
         buf[10] = (cache_duration >> 8) as u8;
         buf[11] = cache_duration as u8;
-        buf[12..].copy_from_slice(name.as_bytes());
+        let mut offset = 12;
+        buf[offset..offset + name_len].copy_from_slice(name.as_bytes());
+        offset += name_len;
+        buf[offset] = scheme_len as u8;
+        offset += 1;
+        buf[offset] = (scheme_len >> 8) as u8;
+        offset += 1;
+        buf[offset..].copy_from_slice(user_scheme);
         write_to_log_with_slice(log_buf, log_offset, &buf);
     }
 
-    let l = Storage::create_cache_table(storage.clone(), name, HashInMemoryIndex::new(), cache_duration, is_it_logging);
+    let l = Storage::create_cache_table(storage.clone(), name, HashInMemoryIndex::new(), cache_duration, is_it_logging, scheme.unwrap(), user_scheme);
     if unlikely(l == (u16::MAX - 1u16) as usize) {
         return write_msg(stream, write_buf, write_offset, &[actions::BAD_REQUEST]);
     }

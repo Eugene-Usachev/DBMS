@@ -124,14 +124,13 @@ impl<I: Index<BinKey, (u64, u64)>> DiskStorage<I> {
 
 // Persistence
 impl<I: Index<BinKey, (u64, u64)>> DiskStorage<I> {
+    // TODO: test it, because I get error in mutexes above. Maybe I didn't wait for it, but check it.
     pub fn rise(&mut self) -> bool {
         let path = format!("{}/{}", PERSISTENCE_DIR, self.path.clone());
         // check for the existence of the directory
         if unlikely(!metadata(path.clone()).is_ok()) {
             return false;
         }
-
-        println!("{} size: {}, path: {}", path.clone(), self.size, self.path);
 
         let mut files = Vec::with_capacity(self.size);
         let mut read_files = Vec::with_capacity(self.size);
@@ -159,7 +158,7 @@ impl<I: Index<BinKey, (u64, u64)>> DiskStorage<I> {
         let mut start_offset = 0;
         let mut key_offset;
 
-        let mut tmp_set = HashMap::with_capacity(2>>16);
+        let mut tmp_set = HashMap::with_capacity(2<<16);
 
         for i in 0..self.size {
             let lock = self.files_for_need_to_delete[i].lock().unwrap();

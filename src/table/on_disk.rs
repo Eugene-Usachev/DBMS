@@ -3,17 +3,28 @@ use crate::table::table::{Table, TableEngine};
 
 use crate::disk_storage::storage::DiskStorage;
 use crate::index::Index;
+use crate::scheme::scheme;
 
 pub struct OnDiskTable<I: Index<BinKey, (u64, u64)>> {
     core: DiskStorage<I>,
     name: String,
+    scheme: scheme::Scheme,
+    user_scheme: Box<[u8]>,
 }
 
 impl<I: Index<BinKey, (u64, u64)>> OnDiskTable<I> {
-    pub(crate) fn new(name: String, size: usize, index: I) -> OnDiskTable<I> {
+    pub(crate) fn new(
+        name: String,
+        size: usize,
+        index: I,
+        scheme: scheme::Scheme,
+        user_scheme: Box<[u8]>,
+    ) -> OnDiskTable<I> {
         OnDiskTable {
             core: DiskStorage::new(name.clone(), size, index),
             name,
+            scheme,
+            user_scheme,
         }
     }
 }
@@ -76,6 +87,10 @@ impl<I: Index<BinKey, (u64, u64)>> Table for OnDiskTable<I> {
 
     fn count(&self) -> u64 {
         self.core.infos.count() as u64
+    }
+
+    fn user_scheme(&self) -> Box<[u8]> {
+        self.user_scheme.clone()
     }
 
     fn rise(&mut self) {

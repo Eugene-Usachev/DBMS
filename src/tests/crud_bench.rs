@@ -2,6 +2,7 @@ use std::intrinsics::black_box;
 use std::sync::Arc;
 use crate::bin_types::{BinKey, BinValue};
 use crate::index::HashInMemoryIndex;
+use crate::scheme::scheme::empty_scheme;
 use crate::storage::Storage;
 
 #[cfg(test)]
@@ -11,7 +12,7 @@ pub fn crud_bench(storage: Arc<Storage>) {
     const COUNT: usize = N / PAR;
 
 
-    let number = Storage::create_in_memory_table(storage.clone(), "crud_bench".to_string(), HashInMemoryIndex::new(), false);
+    let number = Storage::create_in_memory_table(storage.clone(), "crud_bench".to_string(), HashInMemoryIndex::new(), false, empty_scheme(), &[]);
     let mut keys = Vec::with_capacity(N);
     let mut values = Vec::with_capacity(N);
     for i in 0..N {

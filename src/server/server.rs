@@ -37,7 +37,7 @@ impl Server {
         }
     }
 
-    pub(crate) fn run(&mut self) {
+    pub fn run(&mut self) {
         if self.is_running {
             return;
         }
@@ -174,7 +174,7 @@ impl Server {
 }
 
 #[inline(always)]
-pub(crate) fn write_msg(stream: &mut impl Stream, buf: &mut [u8], mut offset: usize, msg: &[u8]) -> usize {
+pub fn write_msg(stream: &mut impl Stream, buf: &mut [u8], mut offset: usize, msg: &[u8]) -> usize {
     let l = msg.len();
 
     if unlikely(l + offset > READ_BUFFER_SIZE_WITHOUT_SIZE) {
@@ -207,7 +207,7 @@ pub(crate) fn write_msg(stream: &mut impl Stream, buf: &mut [u8], mut offset: us
 }
 
 #[inline(always)]
-pub(crate) fn write_msg_with_status_separate(stream: &mut impl Stream, buf: &mut [u8], mut offset: usize, status: u8, msg: &[u8]) -> usize {
+pub fn write_msg_with_status_separate(stream: &mut impl Stream, buf: &mut [u8], mut offset: usize, status: u8, msg: &[u8]) -> usize {
     let l = msg.len() + 1;
 
     if unlikely(l + offset > READ_BUFFER_SIZE_WITHOUT_SIZE) {
