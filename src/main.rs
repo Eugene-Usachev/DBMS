@@ -42,6 +42,6 @@ fn main() {
             println!("Storage initialized");
             crud(storage.clone());
             persistence(storage.clone());
-            crud_bench(storage.clone());
+            //crud_bench(storage.clone());
         });
 }

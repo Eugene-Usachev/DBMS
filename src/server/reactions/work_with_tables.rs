@@ -29,19 +29,46 @@ pub fn get(stream: &mut impl Stream, storage: Arc<Storage>, message: &[u8], writ
 }
 
 #[inline(always)]
-pub fn get_and_reset_cache_time(stream: &mut impl Stream, storage: Arc<Storage>, message: &[u8], write_buf: &mut [u8], write_offset: usize) -> usize {
+pub fn get_field(stream: &mut impl Stream, storage: Arc<Storage>, message: &[u8], write_buf: &mut [u8], write_offset: usize) -> usize {
     let tables;
     unsafe {
         tables = &*storage.tables.get();
     }
     match tables.get(uint::u16(&message[1..3]) as usize) {
         Some(table) => unsafe {
-            let res = table.get_and_reset_cache_time(&BinKey::new(&message[3..]));
+            let field = uint::u16(&message[3..5]);
+            let res = table.get_field(&BinKey::new(&message[5..]), field as usize);
             if unlikely(res.is_none()) {
                 return write_msg(stream, write_buf, write_offset, &[actions::NOT_FOUND]);
             }
             let value = res.unwrap_unchecked();
-            return write_msg_with_status_separate(stream, write_buf, write_offset, actions::DONE, value.deref())
+            return write_msg_with_status_separate(stream, write_buf, write_offset, actions::DONE, &value)
+        }
+        None => {
+            write_msg(stream, write_buf, write_offset, &[actions::TABLE_NOT_FOUND])
+        }
+    }
+}
+
+#[inline(always)]
+pub fn get_fields(stream: &mut impl Stream, storage: Arc<Storage>, message: &[u8], write_buf: &mut [u8], write_offset: usize) -> usize {
+    let tables;
+    unsafe {
+        tables = &*storage.tables.get();
+    }
+    match tables.get(uint::u16(&message[1..3]) as usize) {
+        Some(table) => unsafe {
+            let number_of_fields = uint::u16(&message[3..5]) as usize;
+            let mut fields = Vec::with_capacity(number_of_fields);
+            for i in 0..number_of_fields {
+                fields.push(uint::u16(&message[5+i*2..5+i*2+2]) as usize);
+            }
+            let res = table.get_fields(&BinKey::new(&message[5..]), &fields);
+            if unlikely(res.is_none()) {
+                return write_msg(stream, write_buf, write_offset, &[actions::NOT_FOUND]);
+            }
+            let value = res.unwrap_unchecked();
+            return write_msg_with_status_separate(stream, write_buf, write_offset, actions::DONE, &value)
         }
         None => {
             write_msg(stream, write_buf, write_offset, &[actions::TABLE_NOT_FOUND])

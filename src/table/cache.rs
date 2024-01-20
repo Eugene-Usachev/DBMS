@@ -77,14 +77,6 @@ impl<I: Index<BinKey, (u64, BinValue)>> Table for CacheTable<I> {
 
     #[inline(always)]
     fn get(&self, key: &BinKey) -> Option<BinValue> {
-        match self.index.get(key) {
-            Some(value) => Some(value.1),
-            None => None,
-        }
-    }
-
-    #[inline(always)]
-    fn get_and_reset_cache_time(&self, key: &BinKey) -> Option<BinValue> {
         let res = self.index.get_and_modify(key, |value| {
             value.0 = NOW_MINUTES.load(SeqCst);
         });
@@ -162,6 +154,10 @@ impl<I: Index<BinKey, (u64, BinValue)>> Table for CacheTable<I> {
 
     fn user_scheme(&self) -> Box<[u8]> {
         self.user_scheme.clone()
+    }
+
+    fn scheme(&self) -> &scheme::Scheme {
+        &self.scheme
     }
 
     fn dump(&self) {

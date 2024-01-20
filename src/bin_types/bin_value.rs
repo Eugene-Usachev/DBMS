@@ -34,6 +34,31 @@ impl<'a> BinValue {
         }
     }
 
+    pub fn with_len(len: usize) -> Self {
+        let new_slice: *mut u8;
+        let size;
+        unsafe {
+            if likely(len < 65535) {
+                new_slice = Vec::<u8>::with_capacity(len + 2).leak().as_mut_ptr();
+                *new_slice.offset(0) = len as u8;
+                *new_slice.offset(1) = (len >> 8) as u8;
+                size = 2;
+            } else {
+                new_slice = Vec::<u8>::with_capacity(len + 6).leak().as_mut_ptr();
+                *new_slice.offset(0) = 255u8;
+                *new_slice.offset(1) = 255u8;
+                *new_slice.offset(2) = len as u8;
+                *new_slice.offset(3) = (len >> 8) as u8;
+                *new_slice.offset(4) = (len >> 16) as u8;
+                *new_slice.offset(5) = (len >> 24) as u8;
+                size = 6;
+            }
+        }
+        BinValue {
+            ptr: new_slice
+        }
+    }
+
     #[inline(always)]
     pub fn deref(&self) -> &'a [u8] {
         self.deref_with_len(self.len())

@@ -14,7 +14,7 @@ use crate::utils::fastbytes::uint;
 
 use crate::server::reactions::status::{ping};
 use crate::server::reactions::table::{create_table_cache, create_table_in_memory, create_table_on_disk, get_tables_names};
-use crate::server::reactions::work_with_tables::{delete, get, get_and_reset_cache_time, insert, set};
+use crate::server::reactions::work_with_tables::{delete, get, get_field, get_fields, insert, set};
 use crate::server::stream_trait::Stream;
 
 pub struct Server {
@@ -162,7 +162,9 @@ impl Server {
             actions::GET_TABLES_NAMES => get_tables_names(stream, storage, write_buf, write_offset),
 
             actions::GET => get(stream, storage, message, write_buf, write_offset),
-            actions::GET_AND_RESET_CACHE_TIME => get_and_reset_cache_time(stream, storage, message, write_buf, write_offset),
+            actions::GET_FIELD => get_field(stream, storage, message, write_buf, write_offset),
+            actions::GET_FIELDS => get_fields(stream, storage, message, write_buf, write_offset),
+
             actions::INSERT => insert(stream, storage, message, write_buf, write_offset, log_buf, log_offset),
             actions::SET => set(stream, storage, message, write_buf, write_offset, log_buf, log_offset),
             actions::DELETE => delete(stream, storage, message, write_buf, write_offset, log_buf, log_offset),

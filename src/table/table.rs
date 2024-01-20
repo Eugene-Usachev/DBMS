@@ -1,4 +1,5 @@
 use crate::bin_types::{BinKey, BinValue};
+use crate::scheme::scheme::{get_field, get_fields, Scheme};
 
 pub trait Table: Sync + Send {
     fn engine(&self) -> TableEngine;
@@ -7,7 +8,29 @@ pub trait Table: Sync + Send {
     fn cache_duration(&self) -> u64;
 
     fn get(&self, key: &BinKey) -> Option<BinValue>;
-    fn get_and_reset_cache_time(&self, key: &BinKey) -> Option<BinValue>;
+
+    #[inline(always)]
+    fn get_field(&self, key: &BinKey, field: usize) -> Option<Vec<u8>> {
+        let res = self.get(key);
+        if res.is_none() {
+            return None;
+        }
+        let res = res.unwrap();
+        Some(get_field(&res, self.scheme(), field))
+    }
+
+    #[inline(always)]
+    fn get_fields(&self, key: &BinKey, fields: &[usize]) -> Option<Vec<u8>> {
+        let res = self.get(key);
+        if res.is_none() {
+            return None;
+        }
+        let res = res.unwrap();
+        Some(get_fields(&res, self.scheme(), fields))
+    }
+
+
+
     fn set(&self, key: BinKey, value: BinValue, log_buf: &mut [u8], log_offset: &mut usize) -> Option<BinValue>;
     fn set_without_log(&self, key: BinKey, value: BinValue) -> Option<BinValue>;
     /// Inserts a key-value pair into the index. Do nothing if the key already exists.
@@ -21,6 +44,7 @@ pub trait Table: Sync + Send {
 
     /// user_scheme is a scheme, that we get from user. We will not send `scheme::Scheme` to user.
     fn user_scheme(&self) -> Box<[u8]>;
+    fn scheme(&self) -> &Scheme;
     fn dump(&self);
     fn rise(&mut self);
     fn invalid_cache(&self);

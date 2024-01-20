@@ -657,7 +657,6 @@ impl Storage {
         unsafe {
             tables = (&mut *storage_for_rise.tables.get());
         }
-        println!("{} {:?} {}", tables.len(), storage.table_configs_file_path.clone(), File::open(storage.table_configs_file_path.clone()).unwrap().metadata().unwrap().len());
         let mut joins = Vec::with_capacity((tables).len());
         for table in tables.iter_mut() {
             unsafe {

@@ -4,6 +4,7 @@ use crate::table::table::{Table, TableEngine};
 use crate::disk_storage::storage::DiskStorage;
 use crate::index::Index;
 use crate::scheme::scheme;
+use crate::scheme::scheme::Scheme;
 
 pub struct OnDiskTable<I: Index<BinKey, (u64, u64)>> {
     core: DiskStorage<I>,
@@ -93,6 +94,10 @@ impl<I: Index<BinKey, (u64, u64)>> Table for OnDiskTable<I> {
         self.user_scheme.clone()
     }
 
+    fn scheme(&self) -> &Scheme {
+        &self.scheme
+    }
+
     fn rise(&mut self) {
         self.core.rise();
     }
@@ -100,10 +105,6 @@ impl<I: Index<BinKey, (u64, u64)>> Table for OnDiskTable<I> {
     // NOT EXISTS!
 
     fn invalid_cache(&self) {
-        unreachable!()
-    }
-
-    fn get_and_reset_cache_time(&self, _key: &BinKey) -> Option<BinValue> {
         unreachable!()
     }
 

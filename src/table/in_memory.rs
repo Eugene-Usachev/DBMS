@@ -128,6 +128,11 @@ impl<I: Index<BinKey, BinValue>> Table for InMemoryTable<I> {
         self.user_scheme.clone()
     }
 
+    #[inline(always)]
+    fn scheme(&self) -> &scheme::Scheme {
+        &self.scheme
+    }
+
     fn dump(&self) {
         const BUF_SIZE: usize = 64 * 1024;
         const COUNT_OF_ELEMS_SIZE: usize = 8;
@@ -269,10 +274,6 @@ impl<I: Index<BinKey, BinValue>> Table for InMemoryTable<I> {
     }
 
     // NOT EXISTS!
-
-    fn get_and_reset_cache_time(&self, _key: &BinKey) -> Option<BinValue> {
-        unreachable!()
-    }
 
     fn invalid_cache(&self) {
         unreachable!()
