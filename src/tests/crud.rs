@@ -1,12 +1,12 @@
 use std::sync::Arc;
-use tokio::io::AsyncWriteExt;
 use crate::bin_types::{BinKey, BinValue};
 use crate::index::HashInMemoryIndex;
+use crate::scheme::scheme::empty_scheme;
 use crate::storage::Storage;
 
 #[cfg(test)]
 pub fn crud(storage: Arc<Storage>) {
-    let number = Storage::create_in_memory_table(storage.clone(), "crud".to_string(), HashInMemoryIndex::new(), false);
+    let number = Storage::create_in_memory_table(storage.clone(), "crud".to_string(), HashInMemoryIndex::new(), false, empty_scheme(), &[]);
     let mut keys = Vec::with_capacity(10000);
     let mut values = Vec::with_capacity(10000);
     for i in 0..10000 {

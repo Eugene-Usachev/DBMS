@@ -14,7 +14,7 @@ use crate::utils::fastbytes::uint;
 
 use crate::server::reactions::status::{ping};
 use crate::server::reactions::table::{create_table_cache, create_table_in_memory, create_table_on_disk, get_tables_names};
-use crate::server::reactions::work_with_tables::{delete, get, get_and_reset_cache_time, insert, set};
+use crate::server::reactions::work_with_tables::{delete, get, get_field, get_fields, insert, set};
 use crate::server::stream_trait::Stream;
 
 pub struct Server {
@@ -37,7 +37,7 @@ impl Server {
         }
     }
 
-    pub(crate) fn run(&mut self) {
+    pub fn run(&mut self) {
         if self.is_running {
             return;
         }
@@ -162,7 +162,9 @@ impl Server {
             actions::GET_TABLES_NAMES => get_tables_names(stream, storage, write_buf, write_offset),
 
             actions::GET => get(stream, storage, message, write_buf, write_offset),
-            actions::GET_AND_RESET_CACHE_TIME => get_and_reset_cache_time(stream, storage, message, write_buf, write_offset),
+            actions::GET_FIELD => get_field(stream, storage, message, write_buf, write_offset),
+            actions::GET_FIELDS => get_fields(stream, storage, message, write_buf, write_offset),
+
             actions::INSERT => insert(stream, storage, message, write_buf, write_offset, log_buf, log_offset),
             actions::SET => set(stream, storage, message, write_buf, write_offset, log_buf, log_offset),
             actions::DELETE => delete(stream, storage, message, write_buf, write_offset, log_buf, log_offset),
@@ -174,7 +176,7 @@ impl Server {
 }
 
 #[inline(always)]
-pub(crate) fn write_msg(stream: &mut impl Stream, buf: &mut [u8], mut offset: usize, msg: &[u8]) -> usize {
+pub fn write_msg(stream: &mut impl Stream, buf: &mut [u8], mut offset: usize, msg: &[u8]) -> usize {
     let l = msg.len();
 
     if unlikely(l + offset > READ_BUFFER_SIZE_WITHOUT_SIZE) {
@@ -207,7 +209,7 @@ pub(crate) fn write_msg(stream: &mut impl Stream, buf: &mut [u8], mut offset: us
 }
 
 #[inline(always)]
-pub(crate) fn write_msg_with_status_separate(stream: &mut impl Stream, buf: &mut [u8], mut offset: usize, status: u8, msg: &[u8]) -> usize {
+pub fn write_msg_with_status_separate(stream: &mut impl Stream, buf: &mut [u8], mut offset: usize, status: u8, msg: &[u8]) -> usize {
     let l = msg.len() + 1;
 
     if unlikely(l + offset > READ_BUFFER_SIZE_WITHOUT_SIZE) {

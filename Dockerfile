@@ -1,11 +1,40 @@
+# syntax=docker/dockerfile:1
+
+# Comments are provided throughout this file to help you get started.
+# If you need more help, visit the Dockerfile reference guide at
+# https://docs.docker.com/go/dockerfile-reference/
+
+ARG RUST_VERSION=rustlang/rust:nightly-alpine
 ARG APP_NAME=dbms
-FROM rustlang/rust:nightly-bullseye-slim AS build
+
+################################################################################
+# xx is a helper for cross-compilation.
+# See https://github.com/tonistiigi/xx/ for more information.
+FROM --platform=$BUILDPLATFORM tonistiigi/xx:1.3.0 AS xx
+
+################################################################################
+# Create a stage for building the application.
+FROM --platform=$BUILDPLATFORM ${RUST_VERSION} AS build
 ARG APP_NAME
 WORKDIR /app
 
+# Copy cross compilation utilities from the xx stage.
+COPY --from=xx / /
+
+# Install host build dependencies.
+RUN apk add --no-cache clang lld musl-dev git file
+
+# This is the architecture you’re building for, which is passed in by the builder.
+# Placing it here allows the previous steps to be cached across architectures.
+ARG TARGETPLATFORM
+
+# Install cross compilation build dependencies.
+RUN xx-apk add --no-cache musl-dev gcc
+
 # Build the application.
 # Leverage a cache mount to /usr/local/cargo/registry/
-# for downloaded dependencies and a cache mount to /app/target/ for 
+# for downloaded dependencies, a cache mount to /usr/local/cargo/git/db
+# for git repository dependencies, and a cache mount to /app/target/ for 
 # compiled dependencies which will speed up subsequent builds.
 # Leverage a bind mount to the src directory to avoid having to copy the
 # source code into the container. Once built, copy the executable to an
@@ -13,12 +42,14 @@ WORKDIR /app
 RUN --mount=type=bind,source=src,target=src \
     --mount=type=bind,source=Cargo.toml,target=Cargo.toml \
     --mount=type=bind,source=Cargo.lock,target=Cargo.lock \
-    --mount=type=cache,target=/app/target/ \
+    --mount=type=cache,target=/app/target/,id=rust-cache-${APP_NAME}-${TARGETPLATFORM} \
+    --mount=type=cache,target=/usr/local/cargo/git/db \
     --mount=type=cache,target=/usr/local/cargo/registry/ \
     <<EOF
 set -e
-cargo build --locked --release
-cp ./target/release/$APP_NAME /bin/server
+xx-cargo build --locked --release --target-dir ./target
+cp ./target/$(xx-cargo --print-target-triple)/release/$APP_NAME /bin/server
+xx-verify /bin/server
 EOF
 
 ################################################################################
@@ -27,12 +58,11 @@ EOF
 # image from the build stage where the necessary files are copied from the build
 # stage.
 #
-# The example below uses the debian bullseye image as the foundation for running the app.
-# By specifying the "bullseye-slim" tag, it will also use whatever happens to be the
-# most recent version of that tag when you build your Dockerfile. If
+# The example below uses the alpine image as the foundation for running the app.
+# By specifying the "3.18" tag, it will use version 3.18 of alpine. If
 # reproducability is important, consider using a digest
-# (e.g., debian@sha256:ac707220fbd7b67fc19b112cee8170b41a9e97f703f588b2cdbbcdcecdd8af57).
-FROM debian:bullseye-slim AS final
+# (e.g., alpine@sha256:664888ac9cfd28068e062c991ebcff4b4c7307dc8dd4df9e728bedde5c449d91).
+FROM alpine:3.18 AS final
 
 # Create a non-privileged user that the app will run under.
 # See https://docs.docker.com/go/dockerfile-user-best-practices/

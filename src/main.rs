@@ -17,6 +17,7 @@ mod disk_storage;
 mod writers;
 mod server;
 mod tests;
+mod scheme;
 
 #[cfg(not(test))]
 #[tokio::main]
@@ -41,6 +42,6 @@ fn main() {
             println!("Storage initialized");
             crud(storage.clone());
             persistence(storage.clone());
-            crud_bench(storage.clone());
+            //crud_bench(storage.clone());
         });
 }

@@ -11,6 +11,8 @@ use crate::constants::actions;
 use crate::table::table::{Table, TableEngine};
 use crate::storage::storage::NOW_MINUTES;
 use crate::index::Index;
+use crate::scheme::scheme;
+use crate::scheme::scheme::scheme_from_bytes;
 use crate::utils::fastbytes::uint;
 use crate::writers::{SizedWriter, write_to_log_with_key, write_to_log_with_key_and_value};
 
@@ -22,11 +24,22 @@ pub struct CacheTable<I: Index<BinKey, (u64, BinValue)>> {
     was_dumped: AtomicBool,
     number_of_dumps: Arc<AtomicU32>,
     name: String,
-    is_it_logging: bool
+    is_it_logging: bool,
+    scheme: scheme::Scheme,
+    user_scheme: Box<[u8]>
 }
 
 impl<I: Index<BinKey, (u64, BinValue)>> CacheTable<I> {
-    pub fn new(number: u16, index: I, cache_duration: u64, name: String, is_it_logging: bool, number_of_dumps: Arc<AtomicU32>) -> CacheTable<I> {
+    pub fn new(
+        number: u16,
+        index: I,
+        cache_duration: u64,
+        name: String,
+        is_it_logging: bool,
+        number_of_dumps: Arc<AtomicU32>,
+        scheme: scheme::Scheme,
+        user_scheme: Box<[u8]>,
+    ) -> CacheTable<I> {
         CacheTable {
             number,
             index,
@@ -34,7 +47,9 @@ impl<I: Index<BinKey, (u64, BinValue)>> CacheTable<I> {
             was_dumped: AtomicBool::new(false),
             number_of_dumps,
             name,
-            is_it_logging
+            is_it_logging,
+            scheme,
+            user_scheme
         }
     }
 }
@@ -62,14 +77,6 @@ impl<I: Index<BinKey, (u64, BinValue)>> Table for CacheTable<I> {
 
     #[inline(always)]
     fn get(&self, key: &BinKey) -> Option<BinValue> {
-        match self.index.get(key) {
-            Some(value) => Some(value.1),
-            None => None,
-        }
-    }
-
-    #[inline(always)]
-    fn get_and_reset_cache_time(&self, key: &BinKey) -> Option<BinValue> {
         let res = self.index.get_and_modify(key, |value| {
             value.0 = NOW_MINUTES.load(SeqCst);
         });
@@ -143,6 +150,14 @@ impl<I: Index<BinKey, (u64, BinValue)>> Table for CacheTable<I> {
         self.index.retain(|_, value| {
             return value.0 + duration > now;
         });
+    }
+
+    fn user_scheme(&self) -> Box<[u8]> {
+        self.user_scheme.clone()
+    }
+
+    fn scheme(&self) -> &scheme::Scheme {
+        &self.scheme
     }
 
     fn dump(&self) {

@@ -1,7 +1,9 @@
 use std::io::{Write};
 use std::sync::Arc;
+use serde_json::Value;
 use crate::bin_types::{BinKey, BinValue};
 use crate::index::HashInMemoryIndex;
+use crate::scheme::scheme::empty_scheme;
 use crate::storage::Storage;
 
 #[cfg(test)]
@@ -16,12 +18,22 @@ pub fn persistence(storage: Arc<Storage>) {
 }
 
 #[cfg(test)]
+static SCHEMA: &'static [u8] = (br#"{
+    "sized_fields": {
+        "key": "Uint32"
+    },
+    "unsized_fields": {
+        "key2": "String"
+    }
+}"#);
+
+#[cfg(test)]
 fn test_dump(storage: Arc<Storage>) {
-    let number1 = Storage::create_in_memory_table(storage.clone(), "persistence 1".to_string(), HashInMemoryIndex::new(), false);
-    let number2 = Storage::create_in_memory_table(storage.clone(), "persistence 2".to_string(), HashInMemoryIndex::new(), false);
-    let mut tables;
+    let number1 = Storage::create_in_memory_table(storage.clone(), "persistence 1".to_string(), HashInMemoryIndex::new(), false, empty_scheme(), SCHEMA);
+    let number2 = Storage::create_in_memory_table(storage.clone(), "persistence 2".to_string(), HashInMemoryIndex::new(), false, empty_scheme(), SCHEMA);
+    let tables;
     unsafe {
-        tables = (&*storage.tables.get())
+        tables = &*storage.tables.get()
     };
 
 
@@ -45,9 +57,9 @@ fn test_dump(storage: Arc<Storage>) {
     }
 
     Storage::dump(storage.clone());
-    let mut tables;
+    let tables;
     unsafe {
-        tables = (&mut *storage.tables.get())
+        tables = &mut *storage.tables.get()
     };
 
     tables.remove(number1);
@@ -78,16 +90,23 @@ fn test_dump(storage: Arc<Storage>) {
         }
     }
 
+    if !tables[number1].user_scheme()[..].eq(SCHEMA) {
+        panic!("can't read after rise. scheme: {:?}", tables[number1].user_scheme());
+    }
+    if !tables[number2].user_scheme()[..].eq(SCHEMA) {
+        panic!("can't read after rise. scheme: {:?}", tables[number2].user_scheme());
+    }
+
     println!("persistence: dump was successful");
 }
 
 #[cfg(test)]
 fn test_dump_and_log(storage: Arc<Storage>) {
-    let number1 = Storage::create_in_memory_table(storage.clone(), "persistence 3".to_string(), HashInMemoryIndex::new(), true);
-    let number2 = Storage::create_in_memory_table(storage.clone(), "persistence 4".to_string(), HashInMemoryIndex::new(), true);
-    let mut tables;
+    let number1 = Storage::create_in_memory_table(storage.clone(), "persistence 3".to_string(), HashInMemoryIndex::new(), true, empty_scheme(), SCHEMA);
+    let number2 = Storage::create_in_memory_table(storage.clone(), "persistence 4".to_string(), HashInMemoryIndex::new(), true, empty_scheme(), SCHEMA);
+    let tables;
     unsafe {
-        tables = (&mut *storage.tables.get())
+        tables = &mut *storage.tables.get()
     };
 
     let mut keys = Vec::with_capacity(10000);

@@ -13,6 +13,7 @@ use crate::bin_types::{BinKey, BinValue};
 use crate::constants;
 use crate::constants::actions::*;
 use crate::index::{HashInMemoryIndex, Index};
+use crate::scheme::scheme::{empty_scheme, Scheme, scheme_from_bytes, SchemeJSON};
 use crate::table::cache::CacheTable;
 use crate::table::in_memory::InMemoryTable;
 use crate::table::on_disk::OnDiskTable;
@@ -82,7 +83,7 @@ impl Storage {
 
         let file_name = "tables.bin";
         let table_configs_file_path: PathBuf = ["..", constants::paths::PERSISTENCE_DIR, file_name].iter().collect();
-        File::create(table_configs_file_path.clone()).expect("[Error] Failed to create table configs file");
+        OpenOptions::new().append(true).create(true).open(table_configs_file_path.clone()).expect("[Error] Failed to open table configs file");
         let log_number = Self::get_log_file_number(number_of_dumps_file_path.clone());
         let file_name = format!("log{log_number}.bin", );
         let path: PathBuf = ["..", constants::paths::PERSISTENCE_DIR, &file_name].iter().collect();
@@ -93,9 +94,6 @@ impl Storage {
             .open(path)
             .unwrap();
         let log_file = LogFile::new(log_file);
-
-        // TODO: r
-        println!("box table size is {}", std::mem::size_of::<Box<dyn Table + 'static>>());
 
         Self {
             tables: UnsafeCell::new(Vec::with_capacity(4096)),
@@ -134,20 +132,20 @@ impl Storage {
         let join = thread::spawn(move || {
             let tables;
             unsafe {
-                tables = &*storage_for_dump.tables.get() as &Vec<Box<dyn Table>>;
+                tables = &*storage_for_dump.tables.get();
             }
             for (number, table) in tables.iter().enumerate() {
                 if number as u32 >= last_tables_count {
                     let engine = table.engine();
                     match engine {
                         TableEngine::InMemory => {
-                            Self::write_in_memory_table_on_disk(storage_for_dump.clone(), &table.name(), number, table.is_it_logging());
+                            Self::write_in_memory_table_on_disk(storage_for_dump.clone(), &table.name(), number, table.is_it_logging(), &table.user_scheme());
                         }
                         TableEngine::OnDisk => {
-                            Self::write_on_disk_table_on_disk(storage_for_dump.clone(), &table.name(), number);
+                            Self::write_on_disk_table_on_disk(storage_for_dump.clone(), &table.name(), number, &table.user_scheme());
                         }
                         TableEngine::CACHE => {
-                            Self::write_cache_table_on_disk(storage_for_dump.clone(), &table.name(), number, table.is_it_logging(), table.cache_duration());
+                            Self::write_cache_table_on_disk(storage_for_dump.clone(), &table.name(), number, table.is_it_logging(), table.cache_duration(), &table.user_scheme());
                         }
                     }
                 }
@@ -244,7 +242,14 @@ impl Storage {
         (len, false)
     }
 
-    pub fn create_in_memory_table<I: Index<BinKey, BinValue> + 'static>(storage: Arc<Storage>, name: String, index: I, is_it_logging: bool) -> usize {
+    pub fn create_in_memory_table<I: Index<BinKey, BinValue> + 'static>(
+        storage: Arc<Storage>,
+        name: String,
+        index: I,
+        is_it_logging: bool,
+        scheme: Scheme,
+        user_scheme: &[u8]
+    ) -> usize {
         let mut lock = storage.tables_names.write().unwrap();
         let (number, is_exist) = Self::insert_table_name_and_get_number(&mut lock, &name);
         if is_exist {
@@ -256,6 +261,8 @@ impl Storage {
             name.clone(),
             is_it_logging,
             storage.number_of_dumps.clone(),
+            scheme,
+            Box::from(user_scheme)
         );
         unsafe {
             (*storage.tables.get()).push(Box::new(table));
@@ -266,18 +273,26 @@ impl Storage {
         return number;
     }
 
-    fn write_in_memory_table_on_disk(storage: Arc<Storage>, name: &str, number: usize, is_it_logging: bool) {
+    fn write_in_memory_table_on_disk(storage: Arc<Storage>, name: &str, number: usize, is_it_logging: bool, user_scheme: &[u8]) {
         let name_len = name.len();
-        let mut buf = Vec::with_capacity(6 + name_len);
+        let mut buf = Vec::with_capacity(8 + name_len + user_scheme.len());
         buf.extend_from_slice(&[CREATE_TABLE_IN_MEMORY, number as u8, (number >> 8) as u8, name_len as u8, (name_len >> 8) as u8]);
         buf.extend_from_slice(name.as_bytes());
         // TODO: index from log
         let is_it_logging_byte = if is_it_logging { 1 } else { 0 };
         buf.extend_from_slice(&[is_it_logging_byte]);
+        buf.extend_from_slice(&[user_scheme.len() as u8, (user_scheme.len() >> 8) as u8]);
+        buf.extend_from_slice(user_scheme);
         Self::write_table_config_on_disk(storage.clone(), &buf);
     }
 
-    pub fn create_on_disk_table<I: Index<BinKey, (u64, u64)> + 'static>(storage: Arc<Storage>, name: String, index: I) -> usize {
+    pub fn create_on_disk_table<I: Index<BinKey, (u64, u64)> + 'static>(
+        storage: Arc<Storage>,
+        name: String,
+        index: I,
+        scheme: Scheme,
+        user_scheme: &[u8]
+    ) -> usize {
         let mut lock = storage.tables_names.write().unwrap();
         let (number, is_exist) = Self::insert_table_name_and_get_number(&mut lock, &name);
         if is_exist {
@@ -286,7 +301,9 @@ impl Storage {
         let table = OnDiskTable::new(
             name.clone(),
             512,
-            index
+            index,
+            scheme,
+            Box::from(user_scheme)
         );
         unsafe {
             (*storage.tables.get()).push(Box::new(table));
@@ -297,15 +314,26 @@ impl Storage {
         return number;
     }
 
-    fn write_on_disk_table_on_disk(storage: Arc<Storage>, name: &str, number: usize) {
+    fn write_on_disk_table_on_disk(storage: Arc<Storage>, name: &str, number: usize, user_scheme: &[u8]) {
         let name_len = name.len();
-        let mut buf = Vec::with_capacity(5 + name_len);
+        let mut buf = Vec::with_capacity(7 + name_len + user_scheme.len());
         buf.extend_from_slice(&[CREATE_TABLE_ON_DISK, number as u8, (number >> 8) as u8, name_len as u8, (name_len >> 8) as u8]);
         buf.extend_from_slice(name.as_bytes());
+        buf.extend_from_slice(&[user_scheme.len() as u8, (user_scheme.len() >> 8) as u8]);
+        buf.extend_from_slice(user_scheme);
         // TODO: index from log
         Self::write_table_config_on_disk(storage.clone(), &buf);
     }
-    pub fn create_cache_table<I: Index<BinKey, (u64, BinValue)> + 'static>(storage: Arc<Storage>, name: String, index: I, cache_duration: u64, is_it_logging: bool) -> usize {
+
+    pub fn create_cache_table<I: Index<BinKey, (u64, BinValue)> + 'static>(
+        storage: Arc<Storage>,
+        name: String,
+        index: I,
+        cache_duration: u64,
+        is_it_logging: bool,
+        scheme: Scheme,
+        user_scheme: &[u8]
+    ) -> usize {
         let mut lock = storage.tables_names.write().unwrap();
         let (number, is_exist) = Self::insert_table_name_and_get_number(&mut lock, &name);
         if is_exist {
@@ -318,6 +346,8 @@ impl Storage {
             name.clone(),
             is_it_logging,
             storage.number_of_dumps.clone(),
+            scheme,
+            Box::from(user_scheme),
         );
         unsafe {
             (*storage.tables.get()).push(Box::new(table));
@@ -329,15 +359,24 @@ impl Storage {
         return number;
     }
 
-    fn write_cache_table_on_disk(storage: Arc<Storage>, name: &str, number: usize, is_it_logging: bool, cache_duration: u64) {
+    fn write_cache_table_on_disk(
+        storage: Arc<Storage>,
+        name: &str,
+        number: usize,
+        is_it_logging: bool,
+        cache_duration: u64,
+        user_scheme: &[u8],
+    ) {
         let name_len = name.len();
-        let mut buf = Vec::with_capacity(14 + name_len);
+        let mut buf = Vec::with_capacity(16 + name_len + user_scheme.len());
         buf.extend_from_slice(&[CREATE_TABLE_CACHE, number as u8, (number >> 8) as u8, name_len as u8, (name_len >> 8) as u8]);
         buf.extend_from_slice(name.as_bytes());
         // TODO: index from log
         let is_it_logging_byte = if is_it_logging { 1 } else { 0 };
         buf.extend_from_slice(&[is_it_logging_byte]);
         buf.extend_from_slice(&uint::u64tob(cache_duration));
+        buf.extend_from_slice(&[user_scheme.len() as u8, (user_scheme.len() >> 8) as u8]);
+        buf.extend_from_slice(user_scheme);
         Self::write_table_config_on_disk(storage.clone(), &buf);
     }
 
@@ -368,7 +407,7 @@ impl Storage {
             let mut file = file_.unwrap();
 
             let mut buf = [0u8; 4096];
-            let mut offset = 0;
+            let mut offset;
             let mut offset_last_record = 0;
             let mut start_offset = 0;
             let mut number;
@@ -380,6 +419,8 @@ impl Storage {
             let mut total_read = 0;
             let mut table_engine;
             let file_len = file.metadata().unwrap().len();
+            let mut scheme_offset;
+            let mut scheme_len;
             let mut total_tables = 0;
             'read: loop {
                 if unlikely(total_read == file_len) {
@@ -440,7 +481,35 @@ impl Storage {
                             is_it_logging = buf[offset] != 0;
                             offset += 1;
 
-                            Self::create_in_memory_table(storage.clone(), name, HashInMemoryIndex::new(), is_it_logging);
+                            if unlikely(offset + 2 > bytes_read) {
+                                read_more(&mut buf, start_offset, bytes_read, &mut offset_last_record);
+                                continue 'read;
+                            }
+
+                            scheme_len = (buf[offset + 1] as u16) << 8 | (buf[offset] as u16);
+                            offset += 2;
+                            scheme_offset = offset;
+
+                            if unlikely(offset + scheme_len as usize > bytes_read) {
+                                read_more(&mut buf, start_offset, bytes_read, &mut offset_last_record);
+                                continue 'read;
+                            }
+                            offset += scheme_len as usize;
+
+                            let user_scheme: &[u8];
+                            let scheme;
+                            if scheme_len == 0 {
+                                user_scheme = &[];
+                                scheme = Ok(empty_scheme());
+                            } else {
+                                user_scheme = &buf[scheme_offset..offset];
+                                scheme = scheme_from_bytes(user_scheme);
+                                if scheme.is_err() {
+                                    continue;
+                                }
+                            }
+
+                            Self::create_in_memory_table(storage.clone(), name, HashInMemoryIndex::new(), is_it_logging, scheme.unwrap(), user_scheme);
                         }
                         CREATE_TABLE_ON_DISK => {
                             if unlikely(offset + 2 > bytes_read) {
@@ -470,7 +539,35 @@ impl Storage {
                             name.copy_from_slice(&buf[name_offset..offset]);
                             let name = String::from_utf8(name).unwrap();
 
-                            Self::create_on_disk_table(storage.clone(), name, HashInMemoryIndex::new());
+                            if unlikely(offset + 2 > bytes_read) {
+                                read_more(&mut buf, start_offset, bytes_read, &mut offset_last_record);
+                                continue 'read;
+                            }
+
+                            scheme_len = (buf[offset + 1] as u16) << 8 | (buf[offset] as u16);
+                            offset += 2;
+                            scheme_offset = offset;
+
+                            if unlikely(offset + scheme_len as usize > bytes_read) {
+                                read_more(&mut buf, start_offset, bytes_read, &mut offset_last_record);
+                                continue 'read;
+                            }
+                            offset += scheme_len as usize;
+
+                            let user_scheme: &[u8];
+                            let scheme;
+                            if scheme_len == 0 {
+                                user_scheme = &[];
+                                scheme = Ok(empty_scheme());
+                            } else {
+                                user_scheme = &buf[scheme_offset..offset];
+                                scheme = scheme_from_bytes(user_scheme);
+                                if scheme.is_err() {
+                                    continue;
+                                }
+                            }
+
+                            Self::create_on_disk_table(storage.clone(), name, HashInMemoryIndex::new(), scheme.unwrap(), user_scheme);
                         }
                         CREATE_TABLE_CACHE => {
                             if unlikely(offset + 2 > bytes_read) {
@@ -515,7 +612,35 @@ impl Storage {
                             cache_duration = (buf[offset + 7] as u64) << 56 | (buf[offset + 6] as u64) << 48 | (buf[offset + 5] as u64) << 40 | (buf[offset + 4] as u64) << 32 | (buf[offset + 3] as u64) << 24 | (buf[offset + 2] as u64) << 16 | (buf[offset + 1] as u64) << 8 | (buf[offset] as u64);
                             offset += 8;
 
-                            Self::create_cache_table(storage.clone(), name, HashInMemoryIndex::new(), cache_duration, is_it_logging);
+                            if unlikely(offset + 2 > bytes_read) {
+                                read_more(&mut buf, start_offset, bytes_read, &mut offset_last_record);
+                                continue 'read;
+                            }
+
+                            scheme_len = (buf[offset + 1] as u16) << 8 | (buf[offset] as u16);
+                            offset += 2;
+                            scheme_offset = offset;
+
+                            if unlikely(offset + scheme_len as usize > bytes_read) {
+                                read_more(&mut buf, start_offset, bytes_read, &mut offset_last_record);
+                                continue 'read;
+                            }
+                            offset += scheme_len as usize;
+
+                            let user_scheme: &[u8];
+                            let scheme;
+                            if scheme_len == 0 {
+                                user_scheme = &[];
+                                scheme = Ok(empty_scheme());
+                            } else {
+                                user_scheme = &buf[scheme_offset..offset];
+                                scheme = scheme_from_bytes(user_scheme);
+                                if scheme.is_err() {
+                                    continue;
+                                }
+                            }
+
+                            Self::create_cache_table(storage.clone(), name, HashInMemoryIndex::new(), cache_duration, is_it_logging, scheme.unwrap(), user_scheme);
                         }
                         _ => {
                             panic!("Unknown engine: {}", table_engine);
@@ -530,7 +655,7 @@ impl Storage {
         let storage_for_rise = storage.clone();
         let mut tables;
         unsafe {
-            tables = (&mut *storage_for_rise.tables.get()) as &mut Vec<Box<dyn Table>>;
+            tables = (&mut *storage_for_rise.tables.get());
         }
         let mut joins = Vec::with_capacity((tables).len());
         for table in tables.iter_mut() {
@@ -544,7 +669,6 @@ impl Storage {
         for join in joins {
             join.join().unwrap();
         }
-        drop(tables);
 
         Self::read_log(storage.clone());
     }
@@ -586,6 +710,8 @@ impl Storage {
         let mut value_offset;
         let mut number;
         let mut cache_duration;
+        let mut scheme_len;
+        let mut scheme_offset;
         let tables;
         unsafe {
             tables = (&mut *storage.tables.get()) as &mut Vec<Box<dyn Table>>;
@@ -784,7 +910,35 @@ impl Storage {
                         name.copy_from_slice(&chunk[name_offset..offset]);
                         let name = String::from_utf8(name).unwrap();
 
-                        Self::create_in_memory_table(storage.clone(), name, HashInMemoryIndex::new(), is_it_logging);
+                        if unlikely(offset + 2 > bytes_read) {
+                            read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
+                            continue 'read;
+                        }
+
+                        scheme_len = (chunk[offset + 1] as u16) << 8 | (chunk[offset] as u16);
+                        offset += 2;
+                        scheme_offset = offset;
+
+                        if unlikely(offset + scheme_len as usize > bytes_read) {
+                            read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
+                            continue 'read;
+                        }
+                        offset += scheme_len as usize;
+
+                        let user_scheme: &[u8];
+                        let scheme;
+                        if scheme_len == 0 {
+                            user_scheme = &[];
+                            scheme = Ok(empty_scheme());
+                        } else {
+                            user_scheme = &chunk[scheme_offset..offset];
+                            scheme = scheme_from_bytes(user_scheme);
+                            if scheme.is_err() {
+                                continue;
+                            }
+                        }
+
+                        Self::create_in_memory_table(storage.clone(), name, HashInMemoryIndex::new(), is_it_logging, scheme.unwrap(), user_scheme);
                     }
                     CREATE_TABLE_ON_DISK => {
                         if unlikely(offset + 2 > bytes_read) {
@@ -811,7 +965,36 @@ impl Storage {
                         name = vec![0; name_len as usize];
                         name.copy_from_slice(&chunk[name_offset..offset]);
                         let name = String::from_utf8(name).unwrap();
-                        Self::create_on_disk_table(storage.clone(), name, HashInMemoryIndex::new());
+
+                        if unlikely(offset + 2 > bytes_read) {
+                            read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
+                            continue 'read;
+                        }
+
+                        scheme_len = (chunk[offset + 1] as u16) << 8 | (chunk[offset] as u16);
+                        offset += 2;
+                        scheme_offset = offset;
+
+                        if unlikely(offset + scheme_len as usize > bytes_read) {
+                            read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
+                            continue 'read;
+                        }
+                        offset += scheme_len as usize;
+
+                        let user_scheme: &[u8];
+                        let scheme;
+                        if scheme_len == 0 {
+                            user_scheme = &[];
+                            scheme = Ok(empty_scheme());
+                        } else {
+                            user_scheme = &chunk[scheme_offset..offset];
+                            scheme = scheme_from_bytes(user_scheme);
+                            if scheme.is_err() {
+                                continue;
+                            }
+                        }
+
+                        Self::create_on_disk_table(storage.clone(), name, HashInMemoryIndex::new(), scheme.unwrap(), user_scheme);
                     }
                     CREATE_TABLE_CACHE => {
                         if unlikely(offset + 2 > bytes_read) {
@@ -855,7 +1038,35 @@ impl Storage {
                         name.copy_from_slice(&chunk[name_offset..offset]);
                         let name = String::from_utf8(name).unwrap();
 
-                        Self::create_cache_table(storage.clone(), name, HashInMemoryIndex::new(), cache_duration, is_it_logging);
+                        if unlikely(offset + 2 > bytes_read) {
+                            read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
+                            continue 'read;
+                        }
+
+                        scheme_len = (chunk[offset + 1] as u16) << 8 | (chunk[offset] as u16);
+                        offset += 2;
+                        scheme_offset = offset;
+
+                        if unlikely(offset + scheme_len as usize > bytes_read) {
+                            read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
+                            continue 'read;
+                        }
+                        offset += scheme_len as usize;
+
+                        let user_scheme: &[u8];
+                        let scheme;
+                        if scheme_len == 0 {
+                            user_scheme = &[];
+                            scheme = Ok(empty_scheme());
+                        } else {
+                            user_scheme = &chunk[scheme_offset..offset];
+                            scheme = scheme_from_bytes(user_scheme);
+                            if scheme.is_err() {
+                                continue;
+                            }
+                        }
+
+                        Self::create_cache_table(storage.clone(), name, HashInMemoryIndex::new(), cache_duration, is_it_logging, scheme.unwrap(), user_scheme);
                     }
                     _ => {
                         panic!("Unknown action was detected while reading the log: {}", action);
