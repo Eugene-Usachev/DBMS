@@ -5,6 +5,7 @@ use crate::disk_storage::storage::DiskStorage;
 use crate::index::Index;
 use crate::scheme::scheme;
 use crate::scheme::scheme::Scheme;
+use crate::writers::LogWriter;
 
 pub struct OnDiskTable<I: Index<BinKey, (u64, u64)>> {
     core: DiskStorage<I>,
@@ -57,7 +58,7 @@ impl<I: Index<BinKey, (u64, u64)>> Table for OnDiskTable<I> {
     }
 
     #[inline(always)]
-    fn set(&self, key: BinKey, value: BinValue, _: &mut [u8], _: &mut usize) -> Option<BinValue> {
+    fn set(&self, key: BinKey, value: BinValue, _: &mut LogWriter) -> Option<BinValue> {
         self.core.set(key, value)
     }
 
@@ -67,7 +68,7 @@ impl<I: Index<BinKey, (u64, u64)>> Table for OnDiskTable<I> {
     }
 
     #[inline(always)]
-    fn insert(&self, key: BinKey, value: BinValue, _: &mut [u8], _: &mut usize) -> bool {
+    fn insert(&self, key: BinKey, value: BinValue, _: &mut LogWriter) -> bool {
         self.core.insert(key, value)
     }
 
@@ -77,7 +78,7 @@ impl<I: Index<BinKey, (u64, u64)>> Table for OnDiskTable<I> {
     }
 
     #[inline(always)]
-    fn delete(&self, key: &BinKey, _: &mut [u8], _: &mut usize) {
+    fn delete(&self, key: &BinKey, _: &mut LogWriter) {
         self.core.delete(key);
     }
 

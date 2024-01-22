@@ -1,5 +1,4 @@
 use std::hash::{Hash, Hasher};
-use std::intrinsics::{likely, unlikely};
 use std::ptr;
 
 pub struct BinValue {
@@ -12,7 +11,7 @@ impl<'a> BinValue {
         let new_slice: *mut u8;
         let size;
         unsafe {
-            if likely(len < 65535) {
+            if len < 65535 {
                 new_slice = Vec::<u8>::with_capacity(len + 2).leak().as_mut_ptr();
                 *new_slice.offset(0) = len as u8;
                 *new_slice.offset(1) = (len >> 8) as u8;
@@ -38,7 +37,7 @@ impl<'a> BinValue {
         let new_slice: *mut u8;
         let size;
         unsafe {
-            if likely(len < 65535) {
+            if len < 65535 {
                 new_slice = Vec::<u8>::with_capacity(len + 2).leak().as_mut_ptr();
                 *new_slice.offset(0) = len as u8;
                 *new_slice.offset(1) = (len >> 8) as u8;
@@ -67,11 +66,10 @@ impl<'a> BinValue {
     #[inline(always)]
     pub fn deref_with_len(&self, len: usize) -> &'a [u8] {
         unsafe {
-            if unlikely(len > 65354) {
-                return &(*ptr::slice_from_raw_parts(self.ptr.add(6), len));
-            } else {
-                return &(*ptr::slice_from_raw_parts(self.ptr.add(2), len));
+            if len < 65355 {
+                return &(*ptr::slice_from_raw_parts(self.ptr.add(2), len))
             }
+            return &(*ptr::slice_from_raw_parts(self.ptr.add(6), len));
         }
     }
 
@@ -92,11 +90,10 @@ impl<'a> BinValue {
     #[inline(always)]
     pub fn deref_all_with_len(&self, len: usize) -> &'a [u8] {
         unsafe {
-            if unlikely(len > 65354) {
-                return &(*ptr::slice_from_raw_parts(self.ptr, len + 6));
-            } else {
+            if len < 65355 {
                 return &(*ptr::slice_from_raw_parts(self.ptr, len + 2));
             }
+            return &(*ptr::slice_from_raw_parts(self.ptr, len + 6));
         }
     }
 
@@ -106,19 +103,18 @@ impl<'a> BinValue {
         unsafe {
             // first byte is length
             l = (*self.ptr) as usize | (*self.ptr.offset(1) as usize) << 8;
-            if unlikely(l == 65535) {
-                l = (*self.ptr.offset(2) as usize) | (*self.ptr.offset(3) as usize) << 8 | (*self.ptr.offset(4) as usize) << 16 | (*self.ptr.offset(5) as usize) << 24;
+            if l < 65535 {
+                return l;
             }
+            return (*self.ptr.offset(2) as usize) | (*self.ptr.offset(3) as usize) << 8 | (*self.ptr.offset(4) as usize) << 16 | (*self.ptr.offset(5) as usize) << 24;
         }
-
-        return l;
     }
 }
 
 impl Drop for BinValue {
     fn drop(&mut self) {
         let len = self.len();
-        let size = if likely(len < 65535) { 2 } else { 6 };
+        let size = if len < 65535 { 2 } else { 6 };
         unsafe {
             Vec::from_raw_parts(self.ptr, len + size, len + size);
         }
@@ -156,7 +152,7 @@ impl Clone for BinValue {
         let len = self.len();
         let size;
         let new_slice: *mut u8;
-        if likely(len < 65535) {
+        if len < 65535 {
             size = 2;
         } else {
             size = 6;

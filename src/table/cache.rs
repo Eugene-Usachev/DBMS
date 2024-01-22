@@ -1,5 +1,4 @@
 use std::fs::{DirBuilder, File};
-use std::intrinsics::unlikely;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -12,9 +11,8 @@ use crate::table::table::{Table, TableEngine};
 use crate::storage::storage::NOW_MINUTES;
 use crate::index::Index;
 use crate::scheme::scheme;
-use crate::scheme::scheme::scheme_from_bytes;
 use crate::utils::fastbytes::uint;
-use crate::writers::{SizedWriter, write_to_log_with_key, write_to_log_with_key_and_value};
+use crate::writers::{LogWriter, SizedWriter};
 
 pub struct CacheTable<I: Index<BinKey, (u64, BinValue)>> {
     index: I,
@@ -81,20 +79,20 @@ impl<I: Index<BinKey, (u64, BinValue)>> Table for CacheTable<I> {
             value.0 = NOW_MINUTES.load(SeqCst);
         });
 
-        if unlikely(res.is_none()) {
+        if (res.is_none()) {
             return None;
         }
         Some(res.unwrap().1)
     }
 
     #[inline(always)]
-    fn set(&self, key: BinKey, value: BinValue, log_buf: &mut [u8], log_offset: &mut usize) -> Option<BinValue> {
+    fn set(&self, key: BinKey, value: BinValue, log_writer: &mut LogWriter) -> Option<BinValue> {
         if self.is_it_logging {
-            write_to_log_with_key_and_value(log_buf, log_offset, actions::SET, self.number, &key, &value);
+            log_writer.write_key_and_value(actions::SET, self.number, &key, &value);
         }
 
         let res = self.index.set(key, (NOW_MINUTES.load(SeqCst), value));
-        if unlikely(res.is_none()) {
+        if (res.is_none()) {
             return None;
         }
         Some(res.unwrap().1)
@@ -103,16 +101,16 @@ impl<I: Index<BinKey, (u64, BinValue)>> Table for CacheTable<I> {
     #[inline(always)]
     fn set_without_log(&self, key: BinKey, value: BinValue) -> Option<BinValue> {
         let res = self.index.set(key, (NOW_MINUTES.load(SeqCst), value));
-        if unlikely(res.is_none()) {
+        if (res.is_none()) {
             return None;
         }
         Some(res.unwrap().1)
     }
 
     #[inline(always)]
-    fn insert(&self, key: BinKey, value: BinValue, log_buf: &mut [u8], log_offset: &mut usize) -> bool {
+    fn insert(&self, key: BinKey, value: BinValue, log_writer: &mut LogWriter) -> bool {
         if self.is_it_logging {
-            write_to_log_with_key_and_value(log_buf, log_offset, actions::INSERT, self.number, &key, &value);
+            log_writer.write_key_and_value(actions::INSERT, self.number, &key, &value);
         }
 
         self.index.insert(key, (NOW_MINUTES.load(SeqCst), value))
@@ -124,9 +122,9 @@ impl<I: Index<BinKey, (u64, BinValue)>> Table for CacheTable<I> {
     }
 
     #[inline(always)]
-    fn delete(&self, key: &BinKey, log_buf: &mut [u8], log_offset: &mut usize) {
+    fn delete(&self, key: &BinKey, log_writer: &mut LogWriter) {
         if self.is_it_logging {
-            write_to_log_with_key(log_buf, log_offset, actions::DELETE, self.number, key);
+            log_writer.write_key(actions::DELETE, self.number, key);
         }
 
         self.index.remove(key);
@@ -215,7 +213,7 @@ impl<I: Index<BinKey, (u64, BinValue)>> Table for CacheTable<I> {
 
         let mut input = File::open(path.clone()).expect(&*format!("Failed to open file with path: {}", path.to_string_lossy()));
         let file_len = input.metadata().unwrap().len();
-        if unlikely(file_len < 8) {
+        if (file_len < 8) {
             panic!("file len is less than 8!");
         }
         let mut chunk = [0u8; 64 * 1024];
@@ -234,11 +232,11 @@ impl<I: Index<BinKey, (u64, BinValue)>> Table for CacheTable<I> {
         let mut vl;
 
         'read: loop {
-            if unlikely(total_read == file_len) {
+            if (total_read == file_len) {
                 break;
             }
             let mut bytes_read = input.read(&mut chunk[offset_last_record..]).expect("Failed to read");
-            if unlikely(bytes_read == 0) {
+            if (bytes_read == 0) {
                 break;
             }
 
@@ -248,15 +246,15 @@ impl<I: Index<BinKey, (u64, BinValue)>> Table for CacheTable<I> {
             total_read += bytes_read as u64;
 
             loop {
-                if unlikely(offset + 1 > bytes_read) {
+                if (offset + 1 > bytes_read) {
                     read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
                     continue 'read;
                 }
                 start_offset = offset;
                 kl = chunk[offset] as u32;
                 offset += 1;
-                if unlikely(kl == 255) {
-                    if unlikely(offset + 2 > bytes_read) {
+                if (kl == 255) {
+                    if (offset + 2 > bytes_read) {
                         read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
                         continue 'read;
                     }
@@ -264,7 +262,7 @@ impl<I: Index<BinKey, (u64, BinValue)>> Table for CacheTable<I> {
                     offset += 2;
                 }
 
-                if unlikely(offset + kl as usize + 2 /*for vl*/ > bytes_read) {
+                if (offset + kl as usize + 2 /*for vl*/ > bytes_read) {
                     read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
                     continue 'read;
                 }
@@ -273,8 +271,8 @@ impl<I: Index<BinKey, (u64, BinValue)>> Table for CacheTable<I> {
 
                 vl = (chunk[offset + 1] as u32) << 8 | (chunk[offset] as u32);
                 offset += 2;
-                if unlikely(vl == 65535) {
-                    if unlikely(offset + 4 > bytes_read) {
+                if (vl == 65535) {
+                    if (offset + 4 > bytes_read) {
                         read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
                         continue 'read;
                     }
@@ -282,7 +280,7 @@ impl<I: Index<BinKey, (u64, BinValue)>> Table for CacheTable<I> {
                     offset += 4;
                 }
 
-                if unlikely(offset + vl as usize > bytes_read) {
+                if (offset + vl as usize > bytes_read) {
                     read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
                     continue 'read;
                 }
@@ -296,7 +294,7 @@ impl<I: Index<BinKey, (u64, BinValue)>> Table for CacheTable<I> {
             }
         }
 
-        if unlikely(total_records_read != all_count) {
+        if (total_records_read != all_count) {
             println!("Bad dump read! Lost {} records in dump file with name: {}", all_count - total_records_read, file_name);
         }
     }

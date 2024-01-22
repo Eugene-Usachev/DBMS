@@ -1,4 +1,3 @@
-use std::intrinsics::{likely, unlikely};
 use std::mem;
 use std::sync::RwLock;
 use ahash::RandomState;
@@ -51,7 +50,7 @@ impl<V> Index<u64, V, > for SerialInMemoryIndex<V>
     fn insert(&self, key: u64, value: V) -> bool {
         let key = set_last_two_bytes_to_zero(key);
         let mut shard = self.data[self.get_number(key)].write().unwrap();
-        if unlikely(shard.contains(&value)) {
+        if shard.contains(&value) {
             return false;
         }
         shard.push(value);
@@ -64,7 +63,7 @@ impl<V> Index<u64, V, > for SerialInMemoryIndex<V>
         let key_usize = (key / SIZE_U64) as usize;
         let mut shard = self.data[self.get_number(key)].write().unwrap();
         let res = shard.get_mut(key_usize);
-        if unlikely(res.is_some()) {
+        if res.is_some() {
             mem::swap(res.unwrap(), &mut value);
             return Some(value);
         }
@@ -94,7 +93,7 @@ impl<V> Index<u64, V, > for SerialInMemoryIndex<V>
         let key = set_last_two_bytes_to_zero(*key);
         let key_usize = (key / SIZE_U64) as usize;
         let mut v = self.data[self.get_number(key)].write().unwrap();
-        if likely(v.len() > key_usize) {
+        if v.len() > key_usize {
             return Some(v.remove(key_usize));
         }
         None

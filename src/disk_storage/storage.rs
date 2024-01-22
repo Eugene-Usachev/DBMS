@@ -7,7 +7,6 @@ use std::{
         atomic::AtomicU64
     }
 };
-use std::intrinsics::{likely, unlikely};
 use ahash::{HashMap, HashMapExt, RandomState};
 use positioned_io::{ReadAt};
 use crate::bin_types::{BinKey, BinValue};
@@ -37,7 +36,7 @@ pub struct DiskStorage<I: Index<BinKey, (u64, u64)>> {
 impl<I: Index<BinKey, (u64, u64)>> DiskStorage<I> {
     #[inline(always)]
     pub(crate) fn insert(&self, key: BinKey, value: BinValue) -> bool {
-        if unlikely(self.infos.contains(&key)) {
+        if self.infos.contains(&key) {
             return false;
         }
 
@@ -63,7 +62,7 @@ impl<I: Index<BinKey, (u64, u64)>> DiskStorage<I> {
     #[inline(always)]
     pub(crate) fn get(&self, key: &BinKey) -> Option<BinValue>{
         let res = self.get_index_and_file(key);
-        if unlikely(res.is_none()) {
+        if res.is_none() {
             return None;
         }
 
@@ -77,7 +76,7 @@ impl<I: Index<BinKey, (u64, u64)>> DiskStorage<I> {
     #[inline(always)]
     pub(crate) fn delete(&self, key: &BinKey) {
         let file = self.get_need_to_delete(key);
-        if unlikely(self.infos.remove(key).is_none()) {
+        if self.infos.remove(key).is_none() {
             return;
         }
 
@@ -105,7 +104,7 @@ impl<I: Index<BinKey, (u64, u64)>> DiskStorage<I> {
 
         let old_value = self.infos.set(key.clone(), (vl as u64, index + (size_kl + kl) as u64));
 
-        if unlikely(old_value.is_some()) {
+        if old_value.is_some() {
             let delete_file_ = self.files_for_need_to_delete[number].clone();
             let mut delete_file = delete_file_.lock().unwrap();
             delete_file.write_key_with_size(&key, size_kl).expect("failed to write");
@@ -128,7 +127,7 @@ impl<I: Index<BinKey, (u64, u64)>> DiskStorage<I> {
     pub fn rise(&mut self) -> bool {
         let path = format!("{}/{}", PERSISTENCE_DIR, self.path.clone());
         // check for the existence of the directory
-        if unlikely(!metadata(path.clone()).is_ok()) {
+        if !metadata(path.clone()).is_ok() {
             return false;
         }
 
@@ -165,12 +164,12 @@ impl<I: Index<BinKey, (u64, u64)>> DiskStorage<I> {
             let mut file = lock.inner.get_ref();
             file_len = file.metadata().unwrap().len();
             'read_loop: loop {
-                if unlikely(read == file_len) {
+                if read == file_len {
                     break;
                 }
 
                 let mut bytes_read = file.read(&mut chunk[offset_last_record..]).expect("Failed to read");
-                if unlikely(bytes_read == 0) {
+                if bytes_read == 0 {
                     break;
                 }
 
@@ -179,7 +178,7 @@ impl<I: Index<BinKey, (u64, u64)>> DiskStorage<I> {
                 read += bytes_read as u64;
 
                 loop {
-                    if unlikely(offset + 1 > bytes_read) {
+                    if offset + 1 > bytes_read {
                         let slice_to_copy = &mut Vec::with_capacity(0);
                         chunk[start_offset..bytes_read].clone_into(slice_to_copy);
                         offset_last_record = bytes_read - start_offset;
@@ -188,11 +187,11 @@ impl<I: Index<BinKey, (u64, u64)>> DiskStorage<I> {
                     }
                     start_offset = offset;
                     let mut kl = chunk[offset + 1] as u32;
-                    if likely(kl < 255) {
+                    if kl < 255 {
                         offset += 1;
                     } else {
                         kl = (chunk[offset + 1] as u32) << 8 | (chunk[offset] as u32);
-                        if unlikely(offset + 3 > bytes_read) {
+                        if offset + 3 > bytes_read {
                             let slice_to_copy = &mut Vec::with_capacity(0);
                             chunk[start_offset..bytes_read].clone_into(slice_to_copy);
                             offset_last_record = bytes_read - start_offset;
@@ -202,7 +201,7 @@ impl<I: Index<BinKey, (u64, u64)>> DiskStorage<I> {
                         offset += 3;
                     }
 
-                    if unlikely(offset + kl as usize > bytes_read) {
+                    if offset + kl as usize > bytes_read {
                         let slice_to_copy = &mut Vec::with_capacity(0);
                         chunk[start_offset..bytes_read].clone_into(slice_to_copy);
                         offset_last_record = bytes_read - start_offset;
@@ -225,12 +224,12 @@ impl<I: Index<BinKey, (u64, u64)>> DiskStorage<I> {
             let mut file = lock.inner.get_ref();
             file_len = file.metadata().unwrap().len();
             'read_loop: loop {
-                if unlikely(read == file_len) {
+                if (read == file_len) {
                     break;
                 }
 
                 let mut bytes_read = file.read(&mut chunk[offset_last_record..]).expect("Failed to read");
-                if unlikely(bytes_read == 0) {
+                if (bytes_read == 0) {
                     break;
                 }
 
@@ -239,7 +238,7 @@ impl<I: Index<BinKey, (u64, u64)>> DiskStorage<I> {
                 read += bytes_read as u64;
 
                 loop {
-                    if unlikely(offset + 1 > bytes_read) {
+                    if (offset + 1 > bytes_read) {
                         let slice_to_copy = &mut Vec::with_capacity(0);
                         chunk[start_offset..bytes_read].clone_into(slice_to_copy);
                         offset_last_record = bytes_read - start_offset;
@@ -248,10 +247,10 @@ impl<I: Index<BinKey, (u64, u64)>> DiskStorage<I> {
                     }
                     start_offset = offset;
                     let mut kl = chunk[offset + 1] as u32;
-                    if likely(kl < 255) {
+                    if (kl < 255) {
                         offset += 1;
                     } else {
-                        if unlikely(offset + 3 > bytes_read) {
+                        if (offset + 3 > bytes_read) {
                             let slice_to_copy = &mut Vec::with_capacity(0);
                             chunk[start_offset..bytes_read].clone_into(slice_to_copy);
                             offset_last_record = bytes_read - start_offset;
@@ -262,7 +261,7 @@ impl<I: Index<BinKey, (u64, u64)>> DiskStorage<I> {
                         offset += 3;
                     }
 
-                    if unlikely(offset + kl as usize + 3 /*3 here is bytes for vl*/ > bytes_read) {
+                    if (offset + kl as usize + 3 /*3 here is bytes for vl*/ > bytes_read) {
                         let slice_to_copy = &mut Vec::with_capacity(0);
                         chunk[start_offset..bytes_read].clone_into(slice_to_copy);
                         offset_last_record = bytes_read - start_offset;
@@ -275,7 +274,7 @@ impl<I: Index<BinKey, (u64, u64)>> DiskStorage<I> {
                     let vl = (chunk[offset + 2] as u32) << 16 | (chunk[offset + 1] as u32) << 8 | (chunk[offset] as u32);
                     offset += 3;
 
-                    if unlikely(offset + vl as usize > bytes_read) {
+                    if (offset + vl as usize > bytes_read) {
                         let slice_to_copy = &mut Vec::with_capacity(0);
                         chunk[start_offset..bytes_read].clone_into(slice_to_copy);
                         offset_last_record = bytes_read - start_offset;
@@ -293,9 +292,9 @@ impl<I: Index<BinKey, (u64, u64)>> DiskStorage<I> {
                     unsafe {
                         let atomic = self.atomic_indexes.get_unchecked(number);
                         let res = tmp_set.get_mut(&chunk[key_offset..key_offset+kl as usize]);
-                        if unlikely(res.is_some()) {
+                        if (res.is_some()) {
                             let number = res.unwrap();
-                            if unlikely(*number != 0) {
+                            if (*number != 0) {
                                 *number -= 1;
                                 atomic.fetch_add((6 + vl + kl) as u64, std::sync::atomic::Ordering::SeqCst);
                                 continue;
@@ -389,7 +388,7 @@ impl<I: Index<BinKey, (u64, u64)>> DiskStorage<I> {
         let info;
         {
             let index_ = self.infos.get(key);
-            if unlikely(index_.is_none()) {
+            if (index_.is_none()) {
                 return None;
             }
             info = unsafe { index_.unwrap_unchecked() };

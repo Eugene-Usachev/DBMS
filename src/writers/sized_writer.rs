@@ -1,6 +1,8 @@
 use std::io::{BufWriter, Read, Write};
 use crate::bin_types::{BinKey, BinValue};
 
+
+// TODO: we do not flush it!
 pub struct SizedWriter<T: Write + Read> {
     pub inner: BufWriter<T>
 }
