@@ -1,5 +1,6 @@
 use crate::bin_types::{BinKey, BinValue};
 use crate::scheme::scheme::{get_field, get_fields, Scheme};
+use crate::writers::LogWriter;
 
 pub trait Table: Sync + Send {
     fn engine(&self) -> TableEngine;
@@ -31,14 +32,14 @@ pub trait Table: Sync + Send {
 
 
 
-    fn set(&self, key: BinKey, value: BinValue, log_buf: &mut [u8], log_offset: &mut usize) -> Option<BinValue>;
+    fn set(&self, key: BinKey, value: BinValue,  log_writer: &mut LogWriter) -> Option<BinValue>;
     fn set_without_log(&self, key: BinKey, value: BinValue) -> Option<BinValue>;
     /// Inserts a key-value pair into the index. Do nothing if the key already exists.
     ///
     /// Returns `true` if inserted, `false` otherwise.
-    fn insert(&self, key: BinKey, value: BinValue, log_buf: &mut [u8], log_offset: &mut usize) -> bool;
+    fn insert(&self, key: BinKey, value: BinValue,  log_writer: &mut LogWriter) -> bool;
     fn insert_without_log(&self, key: BinKey, value: BinValue) -> bool;
-    fn delete(&self, key: &BinKey, log_buf: &mut [u8], log_offset: &mut usize);
+    fn delete(&self, key: &BinKey,  log_writer: &mut LogWriter);
     fn delete_without_log(&self, key: &BinKey);
     fn count(&self) -> u64;
 

@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::hash::{BuildHasher, Hash, Hasher};
-use std::intrinsics::unlikely;
 use std::sync::RwLock;
 use ahash::RandomState;
 use crate::index::Index;
@@ -45,7 +44,7 @@ impl<K, V> Index<K, V, > for HashInMemoryIndex<K, V>
     #[inline(always)]
     fn insert(&self, key: K, value: V) -> bool {
         let mut shard = self.data[self.get_number(&key)].write().unwrap();
-        if unlikely(shard.contains_key(&key)) {
+        if shard.contains_key(&key) {
             return false;
         }
         shard.insert(key, value);

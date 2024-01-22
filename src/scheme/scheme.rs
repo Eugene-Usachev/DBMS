@@ -1,4 +1,3 @@
-use std::intrinsics::unlikely;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use crate::bin_types::BinValue;
@@ -344,7 +343,7 @@ pub fn update_field(value: &mut BinValue, scheme: &Scheme, number: usize, new_va
 //
 //         i += 1;
 //         j = i;
-//         if unlikely(numbers.len() == i) {
+//         if (numbers.len() == i) {
 //             break;
 //         }
 //     }
@@ -387,7 +386,7 @@ pub fn update_field(value: &mut BinValue, scheme: &Scheme, number: usize, new_va
 //
 //             offsets_to_unsized_fields.push(offset);
 //             j += 1;
-//             if unlikely(j == numbers.len()){
+//             if (j == numbers.len()){
 //                 break;
 //             }
 //         }

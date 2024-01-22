@@ -2,7 +2,6 @@
 // TODO: maybe remove?
 
 use std::fs::File;
-use std::intrinsics::unlikely;
 use std::io::{BufWriter, Write};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
@@ -30,7 +29,7 @@ impl PipeWriter {
     #[inline(always)]
     pub fn write(&self, value: &Vec<u8>) {
         let mut file = self.file.lock().unwrap();
-        if unlikely(file.capacity() - file.buffer().len() < value.len()) {
+        if file.capacity() - file.buffer().len() < value.len() {
             Self::flush_locked(&mut file, self.cvar.clone());
         }
         file.write_all(&value).unwrap();
@@ -75,7 +74,7 @@ impl PipeWriter {
             loop {
                 tokio::time::sleep(time_to_sleep).await;
                 let duration_since_last_write = last_write.lock().unwrap().elapsed();
-                if unlikely(duration_since_last_write >= time_to_sleep) {
+                if duration_since_last_write >= time_to_sleep {
                     Self::flush(file.clone(), cvar.clone());
                 }
             }

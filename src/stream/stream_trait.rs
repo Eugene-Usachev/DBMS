@@ -4,10 +4,11 @@ use std::net::{Shutdown, TcpStream};
 #[cfg(not(target_os = "windows"))]
 use std::os::unix::net::UnixStream;
 
-pub trait Stream {
+pub trait Stream: Read + Write {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize>;
     fn write_all(&mut self, buf: &[u8])  -> std::io::Result<()>;
     fn shutdown(&mut self) -> std::io::Result<()>;
+    fn clone_ptr<'a>(&self) -> Self;
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -39,6 +40,11 @@ impl Stream for UnixStream {
     fn shutdown(&mut self) -> std::io::Result<()> {
         UnixStream::shutdown(self, Shutdown::Both)
     }
+
+    #[inline(always)]
+    fn clone_ptr<'a>(&self) -> Self {
+        self.try_clone().unwrap()
+    }
 }
 
 impl Stream for TcpStream {
@@ -68,6 +74,11 @@ impl Stream for TcpStream {
     fn shutdown(&mut self) -> std::io::Result<()> {
         TcpStream::shutdown(self, Shutdown::Both)
     }
+
+    #[inline(always)]
+    fn clone_ptr<'a>(&self) -> Self {
+        self.try_clone().unwrap()
+    }
 }
 
 impl Stream for File {
@@ -85,5 +96,10 @@ impl Stream for File {
     #[inline(always)]
     fn shutdown(&mut self) -> std::io::Result<()> {
         <File as Write>::flush(self)
+    }
+
+    #[inline(always)]
+    fn clone_ptr<'a>(&self) -> Self {
+        self.try_clone().unwrap()
     }
 }

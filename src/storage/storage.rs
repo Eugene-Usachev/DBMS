@@ -6,7 +6,6 @@ use std::cell::UnsafeCell;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use crate::table::table::{Table, TableEngine};
 use std::fs::{File, OpenOptions};
-use std::intrinsics::{unlikely};
 use std::io::{Read, Write};
 use std::path::PathBuf;
 use crate::bin_types::{BinKey, BinValue};
@@ -180,7 +179,7 @@ impl Storage {
                 tokio::time::sleep(Duration::from_secs(60)).await;
 
                 dump_after -= 1;
-                if unlikely(dump_after == 0) {
+                if dump_after == 0 {
                     let storage = storage.clone();
                     tokio::spawn(async move {
                         println!("Starting dump");
@@ -423,11 +422,11 @@ impl Storage {
             let mut scheme_len;
             let mut total_tables = 0;
             'read: loop {
-                if unlikely(total_read == file_len) {
+                if total_read == file_len {
                     break;
                 }
                 let mut bytes_read = file.read(&mut buf[offset_last_record..]).expect("Failed to read");
-                if unlikely(bytes_read == 0) {
+                if bytes_read == 0 {
                     break;
                 }
 
@@ -437,7 +436,7 @@ impl Storage {
                 total_read += bytes_read as u64;
 
                 loop {
-                    if unlikely(offset + 1 > bytes_read) {
+                    if offset + 1 > bytes_read {
                         read_more(&mut buf, start_offset, bytes_read, &mut offset_last_record);
                         continue 'read;
                     }
@@ -446,7 +445,7 @@ impl Storage {
                     offset += 1;
                     match table_engine {
                         CREATE_TABLE_IN_MEMORY => {
-                            if unlikely(offset + 2 > bytes_read) {
+                            if offset + 2 > bytes_read {
                                 read_more(&mut buf, start_offset, bytes_read, &mut offset_last_record);
                                 continue 'read;
                             }
@@ -454,7 +453,7 @@ impl Storage {
                             number = (buf[offset + 1] as u16) << 8 | (buf[offset] as u16);
                             offset += 2;
 
-                            if unlikely(offset + 2 > bytes_read) {
+                            if offset + 2 > bytes_read {
                                 read_more(&mut buf, start_offset, bytes_read, &mut offset_last_record);
                                 continue 'read;
                             }
@@ -462,7 +461,7 @@ impl Storage {
                             name_len = (buf[offset + 1] as u32) << 8 | (buf[offset] as u32);
                             offset += 2;
 
-                            if unlikely(offset + name_len as usize > bytes_read) {
+                            if offset + name_len as usize > bytes_read {
                                 read_more(&mut buf, start_offset, bytes_read, &mut offset_last_record);
                                 continue 'read;
                             }
@@ -473,7 +472,7 @@ impl Storage {
                             name.copy_from_slice(&buf[name_offset..offset]);
                             let name = String::from_utf8(name).unwrap();
 
-                            if unlikely(offset + 1 > bytes_read) {
+                            if (offset + 1 > bytes_read) {
                                 read_more(&mut buf, start_offset, bytes_read, &mut offset_last_record);
                                 continue 'read;
                             }
@@ -481,7 +480,7 @@ impl Storage {
                             is_it_logging = buf[offset] != 0;
                             offset += 1;
 
-                            if unlikely(offset + 2 > bytes_read) {
+                            if offset + 2 > bytes_read {
                                 read_more(&mut buf, start_offset, bytes_read, &mut offset_last_record);
                                 continue 'read;
                             }
@@ -490,7 +489,7 @@ impl Storage {
                             offset += 2;
                             scheme_offset = offset;
 
-                            if unlikely(offset + scheme_len as usize > bytes_read) {
+                            if offset + scheme_len as usize > bytes_read {
                                 read_more(&mut buf, start_offset, bytes_read, &mut offset_last_record);
                                 continue 'read;
                             }
@@ -512,7 +511,7 @@ impl Storage {
                             Self::create_in_memory_table(storage.clone(), name, HashInMemoryIndex::new(), is_it_logging, scheme.unwrap(), user_scheme);
                         }
                         CREATE_TABLE_ON_DISK => {
-                            if unlikely(offset + 2 > bytes_read) {
+                            if offset + 2 > bytes_read {
                                 read_more(&mut buf, start_offset, bytes_read, &mut offset_last_record);
                                 continue 'read;
                             }
@@ -520,7 +519,7 @@ impl Storage {
                             number = (buf[offset + 1] as u16) << 8 | (buf[offset] as u16);
                             offset += 2;
 
-                            if unlikely(offset + 2 > bytes_read) {
+                            if offset + 2 > bytes_read {
                                 read_more(&mut buf, start_offset, bytes_read, &mut offset_last_record);
                                 continue 'read;
                             }
@@ -528,7 +527,7 @@ impl Storage {
                             name_len = (buf[offset + 1] as u32) << 8 | (buf[offset] as u32);
                             offset += 2;
 
-                            if unlikely(offset + name_len as usize > bytes_read) {
+                            if offset + name_len as usize > bytes_read {
                                 read_more(&mut buf, start_offset, bytes_read, &mut offset_last_record);
                                 continue 'read;
                             }
@@ -539,7 +538,7 @@ impl Storage {
                             name.copy_from_slice(&buf[name_offset..offset]);
                             let name = String::from_utf8(name).unwrap();
 
-                            if unlikely(offset + 2 > bytes_read) {
+                            if offset + 2 > bytes_read {
                                 read_more(&mut buf, start_offset, bytes_read, &mut offset_last_record);
                                 continue 'read;
                             }
@@ -548,7 +547,7 @@ impl Storage {
                             offset += 2;
                             scheme_offset = offset;
 
-                            if unlikely(offset + scheme_len as usize > bytes_read) {
+                            if offset + scheme_len as usize > bytes_read {
                                 read_more(&mut buf, start_offset, bytes_read, &mut offset_last_record);
                                 continue 'read;
                             }
@@ -570,7 +569,7 @@ impl Storage {
                             Self::create_on_disk_table(storage.clone(), name, HashInMemoryIndex::new(), scheme.unwrap(), user_scheme);
                         }
                         CREATE_TABLE_CACHE => {
-                            if unlikely(offset + 2 > bytes_read) {
+                            if offset + 2 > bytes_read {
                                 read_more(&mut buf, start_offset, bytes_read, &mut offset_last_record);
                                 continue 'read;
                             }
@@ -578,7 +577,7 @@ impl Storage {
                             number = (buf[offset + 1] as u16) << 8 | (buf[offset] as u16);
                             offset += 2;
 
-                            if unlikely(offset + 2 > bytes_read) {
+                            if offset + 2 > bytes_read {
                                 read_more(&mut buf, start_offset, bytes_read, &mut offset_last_record);
                                 continue 'read;
                             }
@@ -586,7 +585,7 @@ impl Storage {
                             name_len = (buf[offset + 1] as u32) << 8 | (buf[offset] as u32);
                             offset += 2;
 
-                            if unlikely(offset + name_len as usize > bytes_read) {
+                            if offset + name_len as usize > bytes_read {
                                 read_more(&mut buf, start_offset, bytes_read, &mut offset_last_record);
                                 continue 'read;
                             }
@@ -597,7 +596,7 @@ impl Storage {
                             name.copy_from_slice(&buf[name_offset..offset]);
                             let name = String::from_utf8(name).unwrap();
 
-                            if unlikely(offset + 1 > bytes_read) {
+                            if offset + 1 > bytes_read {
                                 read_more(&mut buf, start_offset, bytes_read, &mut offset_last_record);
                                 continue 'read;
                             }
@@ -605,14 +604,14 @@ impl Storage {
                             is_it_logging = buf[offset] != 0;
                             offset += 1;
 
-                            if unlikely(offset + 8 > bytes_read) {
+                            if offset + 8 > bytes_read {
                                 read_more(&mut buf, start_offset, bytes_read, &mut offset_last_record);
                                 continue 'read;
                             }
                             cache_duration = (buf[offset + 7] as u64) << 56 | (buf[offset + 6] as u64) << 48 | (buf[offset + 5] as u64) << 40 | (buf[offset + 4] as u64) << 32 | (buf[offset + 3] as u64) << 24 | (buf[offset + 2] as u64) << 16 | (buf[offset + 1] as u64) << 8 | (buf[offset] as u64);
                             offset += 8;
 
-                            if unlikely(offset + 2 > bytes_read) {
+                            if offset + 2 > bytes_read {
                                 read_more(&mut buf, start_offset, bytes_read, &mut offset_last_record);
                                 continue 'read;
                             }
@@ -621,7 +620,7 @@ impl Storage {
                             offset += 2;
                             scheme_offset = offset;
 
-                            if unlikely(offset + scheme_len as usize > bytes_read) {
+                            if offset + scheme_len as usize > bytes_read {
                                 read_more(&mut buf, start_offset, bytes_read, &mut offset_last_record);
                                 continue 'read;
                             }
@@ -718,11 +717,11 @@ impl Storage {
         }
 
         'read: loop {
-            if unlikely(total_read == file_len) {
+            if total_read == file_len {
                 break;
             }
             let mut bytes_read = input.read(&mut chunk[offset_last_record..]).expect("Failed to read");
-            if unlikely(bytes_read == 0) {
+            if bytes_read == 0 {
                 break;
             }
 
@@ -732,7 +731,7 @@ impl Storage {
             total_read += bytes_read as u64;
 
             loop {
-                if unlikely(offset + 1 > bytes_read) {
+                if offset + 1 > bytes_read {
                     read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
                     continue 'read;
                 }
@@ -744,21 +743,21 @@ impl Storage {
                 }
                 match action {
                     INSERT => {
-                        if unlikely(offset + 2 > bytes_read) {
+                        if offset + 2 > bytes_read {
                             read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
                             continue 'read;
                         }
                         number = (chunk[offset + 1] as u16) << 8 | (chunk[offset] as u16);
                         offset += 2;
 
-                        if unlikely(offset + number as usize + 1 > bytes_read) {
+                        if offset + number as usize + 1 > bytes_read {
                             read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
                             continue 'read;
                         }
                         kl = chunk[offset] as u32;
                         offset += 1;
-                        if unlikely(kl == 255) {
-                            if unlikely(offset + 2 > bytes_read) {
+                        if kl == 255 {
+                            if offset + 2 > bytes_read {
                                 read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
                                 continue 'read;
                             }
@@ -766,7 +765,7 @@ impl Storage {
                             offset += 2;
                         }
 
-                        if unlikely(offset + kl as usize + 2 /*for vl*/ > bytes_read) {
+                        if offset + kl as usize + 2 /*for vl*/ > bytes_read {
                             read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
                             continue 'read;
                         }
@@ -775,8 +774,8 @@ impl Storage {
 
                         vl = (chunk[offset + 1] as u32) << 8 | (chunk[offset] as u32);
                         offset += 2;
-                        if unlikely(vl == 65535) {
-                            if unlikely(offset + 4 > bytes_read) {
+                        if vl == 65535 {
+                            if offset + 4 > bytes_read {
                                 read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
                                 continue 'read;
                             }
@@ -784,7 +783,7 @@ impl Storage {
                             offset += 4;
                         }
 
-                        if unlikely(offset + vl as usize > bytes_read) {
+                        if offset + vl as usize > bytes_read {
                             read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
                             continue 'read;
                         }
@@ -794,21 +793,21 @@ impl Storage {
                         tables[number as usize].insert_without_log(BinKey::new(&chunk[key_offset..key_offset+kl as usize]), BinValue::new(&chunk[value_offset..offset]));
                     }
                     SET => {
-                        if unlikely(offset + 2 > bytes_read) {
+                        if offset + 2 > bytes_read {
                             read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
                             continue 'read;
                         }
                         number = (chunk[offset + 1] as u16) << 8 | (chunk[offset] as u16);
                         offset += 2;
 
-                        if unlikely(offset + number as usize + 1 > bytes_read) {
+                        if offset + number as usize + 1 > bytes_read {
                             read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
                             continue 'read;
                         }
                         kl = chunk[offset] as u32;
                         offset += 1;
-                        if unlikely(kl == 255) {
-                            if unlikely(offset + 2 > bytes_read) {
+                        if kl == 255 {
+                            if offset + 2 > bytes_read {
                                 read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
                                 continue 'read;
                             }
@@ -816,7 +815,7 @@ impl Storage {
                             offset += 2;
                         }
 
-                        if unlikely(offset + kl as usize + 2 /*for vl*/ > bytes_read) {
+                        if offset + kl as usize + 2 /*for vl*/ > bytes_read {
                             read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
                             continue 'read;
                         }
@@ -825,8 +824,8 @@ impl Storage {
 
                         vl = (chunk[offset + 1] as u32) << 8 | (chunk[offset] as u32);
                         offset += 2;
-                        if unlikely(vl == 65535) {
-                            if unlikely(offset + 4 > bytes_read) {
+                        if vl == 65535 {
+                            if offset + 4 > bytes_read {
                                 read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
                                 continue 'read;
                             }
@@ -834,7 +833,7 @@ impl Storage {
                             offset += 4;
                         }
 
-                        if unlikely(offset + vl as usize > bytes_read) {
+                        if offset + vl as usize > bytes_read {
                             read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
                             continue 'read;
                         }
@@ -844,21 +843,21 @@ impl Storage {
                         tables[number as usize].set_without_log(BinKey::new(&chunk[key_offset..key_offset+kl as usize]), BinValue::new(&chunk[value_offset..offset]));
                     }
                     DELETE => {
-                        if unlikely(offset + 2 > bytes_read) {
+                        if offset + 2 > bytes_read {
                             read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
                             continue 'read;
                         }
                         number = (chunk[offset + 1] as u16) << 8 | (chunk[offset] as u16);
                         offset += 2;
 
-                        if unlikely(offset + number as usize + 1 > bytes_read) {
+                        if offset + number as usize + 1 > bytes_read {
                             read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
                             continue 'read;
                         }
                         kl = chunk[offset] as u32;
                         offset += 1;
-                        if unlikely(kl == 255) {
-                            if unlikely(offset + 2 > bytes_read) {
+                        if kl == 255 {
+                            if offset + 2 > bytes_read {
                                 read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
                                 continue 'read;
                             }
@@ -866,7 +865,7 @@ impl Storage {
                             offset += 2;
                         }
 
-                        if unlikely(offset + kl as usize > bytes_read) {
+                        if offset + kl as usize > bytes_read {
                             read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
                             continue 'read;
                         }
@@ -876,7 +875,7 @@ impl Storage {
                         tables[number as usize].delete_without_log(&BinKey::new(&chunk[key_offset..key_offset+kl as usize]));
                     }
                     CREATE_TABLE_IN_MEMORY => {
-                        if unlikely(offset + 2 > bytes_read) {
+                        if offset + 2 > bytes_read {
                             read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
                             continue 'read;
                         }
@@ -884,7 +883,7 @@ impl Storage {
                         number = (chunk[offset + 1] as u16) << 8 | (chunk[offset] as u16);
                         offset += 2;
 
-                        if unlikely(offset + 1 > bytes_read) {
+                        if offset + 1 > bytes_read {
                             read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
                             continue 'read;
                         }
@@ -892,7 +891,7 @@ impl Storage {
                         is_it_logging = chunk[offset] != 0;
                         offset += 1;
                         
-                        if unlikely(offset + 2 > bytes_read) {
+                        if offset + 2 > bytes_read {
                             read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
                             continue 'read;
                         } 
@@ -900,7 +899,7 @@ impl Storage {
                         name_len = (chunk[offset + 1] as u32) << 8 | (chunk[offset] as u32);
                         offset += 2;
 
-                        if unlikely(offset + name_len as usize > bytes_read) {
+                        if offset + name_len as usize > bytes_read {
                             read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
                             continue 'read;
                         }
@@ -910,7 +909,7 @@ impl Storage {
                         name.copy_from_slice(&chunk[name_offset..offset]);
                         let name = String::from_utf8(name).unwrap();
 
-                        if unlikely(offset + 2 > bytes_read) {
+                        if offset + 2 > bytes_read {
                             read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
                             continue 'read;
                         }
@@ -919,7 +918,7 @@ impl Storage {
                         offset += 2;
                         scheme_offset = offset;
 
-                        if unlikely(offset + scheme_len as usize > bytes_read) {
+                        if offset + scheme_len as usize > bytes_read {
                             read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
                             continue 'read;
                         }
@@ -941,14 +940,14 @@ impl Storage {
                         Self::create_in_memory_table(storage.clone(), name, HashInMemoryIndex::new(), is_it_logging, scheme.unwrap(), user_scheme);
                     }
                     CREATE_TABLE_ON_DISK => {
-                        if unlikely(offset + 2 > bytes_read) {
+                        if offset + 2 > bytes_read {
                             read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
                             continue 'read;
                         }
                         number = (chunk[offset + 1] as u16) << 8 | (chunk[offset] as u16);
                         offset += 2;
 
-                        if unlikely(offset + 2 > bytes_read) {
+                        if offset + 2 > bytes_read {
                             read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
                             continue 'read;
                         }
@@ -956,7 +955,7 @@ impl Storage {
                         name_len = (chunk[offset + 1] as u32) << 8 | (chunk[offset] as u32);
                         offset += 2;
 
-                        if unlikely(offset + name_len as usize > bytes_read) {
+                        if offset + name_len as usize > bytes_read {
                             read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
                             continue 'read;
                         }
@@ -966,7 +965,7 @@ impl Storage {
                         name.copy_from_slice(&chunk[name_offset..offset]);
                         let name = String::from_utf8(name).unwrap();
 
-                        if unlikely(offset + 2 > bytes_read) {
+                        if offset + 2 > bytes_read {
                             read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
                             continue 'read;
                         }
@@ -975,7 +974,7 @@ impl Storage {
                         offset += 2;
                         scheme_offset = offset;
 
-                        if unlikely(offset + scheme_len as usize > bytes_read) {
+                        if offset + scheme_len as usize > bytes_read {
                             read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
                             continue 'read;
                         }
@@ -997,14 +996,14 @@ impl Storage {
                         Self::create_on_disk_table(storage.clone(), name, HashInMemoryIndex::new(), scheme.unwrap(), user_scheme);
                     }
                     CREATE_TABLE_CACHE => {
-                        if unlikely(offset + 2 > bytes_read) {
+                        if offset + 2 > bytes_read {
                             read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
                             continue 'read;
                         }
                         number = (chunk[offset + 1] as u16) << 8 | (chunk[offset] as u16);
                         offset += 2;
 
-                        if unlikely(offset + 1 > bytes_read) {
+                        if offset + 1 > bytes_read {
                             read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
                             continue 'read;
                         }
@@ -1012,7 +1011,7 @@ impl Storage {
                         is_it_logging = chunk[offset] != 0;
                         offset += 1;
 
-                        if unlikely(offset + 8 > bytes_read) {
+                        if offset + 8 > bytes_read {
                             read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
                             continue 'read;
                         }
@@ -1020,7 +1019,7 @@ impl Storage {
                         cache_duration = (chunk[offset + 7] as u64) << 56 | (chunk[offset + 6] as u64) << 48 | (chunk[offset + 5] as u64) << 40 | (chunk[offset + 4] as u64) << 32 | (chunk[offset + 3] as u64) << 24 | (chunk[offset + 2] as u64) << 16 | (chunk[offset + 1] as u64) << 8 | (chunk[offset] as u64);
                         offset += 8;
 
-                        if unlikely(offset + 2 > bytes_read) {
+                        if offset + 2 > bytes_read {
                             read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
                             continue 'read;
                         }
@@ -1028,7 +1027,7 @@ impl Storage {
                         name_len = (chunk[offset + 1] as u32) << 8 | (chunk[offset] as u32);
                         offset += 2;
 
-                        if unlikely(offset + name_len as usize > bytes_read) {
+                        if offset + name_len as usize > bytes_read {
                             read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
                             continue 'read;
                         }
@@ -1038,7 +1037,7 @@ impl Storage {
                         name.copy_from_slice(&chunk[name_offset..offset]);
                         let name = String::from_utf8(name).unwrap();
 
-                        if unlikely(offset + 2 > bytes_read) {
+                        if offset + 2 > bytes_read {
                             read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
                             continue 'read;
                         }
@@ -1047,7 +1046,7 @@ impl Storage {
                         offset += 2;
                         scheme_offset = offset;
 
-                        if unlikely(offset + scheme_len as usize > bytes_read) {
+                        if offset + scheme_len as usize > bytes_read {
                             read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
                             continue 'read;
                         }

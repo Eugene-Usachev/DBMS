@@ -1,8 +1,8 @@
+use crate::connection::{BufConnection, Status};
 use crate::constants::actions;
-use crate::server::server::write_msg;
-use crate::server::stream_trait::Stream;
+use crate::stream::Stream;
 
 #[inline(always)]
-pub(crate) fn ping(stream: &mut impl Stream, write_buf: &mut [u8], write_offset: usize) -> usize {
-    write_msg(stream, write_buf, write_offset, &[actions::DONE, actions::PING])
+pub(crate) fn ping<S: Stream>(connection: &mut BufConnection<S>) -> Status {
+    connection.write_message(&[actions::DONE, actions::PING])
 }

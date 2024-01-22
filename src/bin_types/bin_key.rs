@@ -1,5 +1,4 @@
 use std::hash::{Hash, Hasher};
-use std::intrinsics::{likely, unlikely};
 use std::ptr;
 
 pub struct BinKey {
@@ -12,7 +11,7 @@ impl<'a> BinKey {
         let new_slice: *mut u8;
         let size;
         unsafe {
-            if likely(len < 255) {
+            if len < 255 {
                 new_slice = Vec::<u8>::with_capacity(len + 1).leak().as_mut_ptr();
                 *new_slice.offset(0) = len as u8;
                 size = 1;
@@ -38,11 +37,11 @@ impl<'a> BinKey {
     #[inline(always)]
     pub fn deref_with_len(&self, len: usize) -> &'a [u8] {
         unsafe {
-            if unlikely(len > 254) {
-                return &(*ptr::slice_from_raw_parts(self.ptr.add(3), len));
-            } else {
+            if len < 255 {
                 return &(*ptr::slice_from_raw_parts(self.ptr.add(1), len));
             }
+            &(*ptr::slice_from_raw_parts(self.ptr.add(3), len))
+
         }
     }
 
@@ -63,11 +62,10 @@ impl<'a> BinKey {
     #[inline(always)]
     pub fn deref_all_with_len(&self, len: usize) -> &'a [u8] {
         unsafe {
-            if unlikely(len > 254) {
-                return &(*ptr::slice_from_raw_parts(self.ptr, len + 3));
-            } else {
+            if len < 255 {
                 return &(*ptr::slice_from_raw_parts(self.ptr, len + 1));
             }
+            return &(*ptr::slice_from_raw_parts(self.ptr, len + 3));
         }
     }
 
@@ -77,20 +75,19 @@ impl<'a> BinKey {
         unsafe {
             // first byte is length
             l = (*self.ptr) as usize;
-            if unlikely(l == 255) {
-                // we take the second byte and third byte
-                l = (*self.ptr.offset(1) as usize) | (*self.ptr.offset(2) as usize) << 8;
+            if l < 255 {
+                return l;
             }
+            // we take the second byte and third byte
+            return (*self.ptr.offset(1) as usize) | (*self.ptr.offset(2) as usize) << 8;
         }
-        
-        return l;
     }
 }
 
 impl Drop for BinKey {
     fn drop(&mut self) {
         let len = self.len();
-        let size = if likely(len < 255) { 1 } else { 3 };
+        let size = if len < 255 { 1 } else { 3 };
         unsafe {
             Vec::from_raw_parts(self.ptr, len + size, len + size);
         }
@@ -129,7 +126,7 @@ impl Clone for BinKey {
         let size;
         let new_slice: *mut u8;
         unsafe {
-            if likely(len < 255) {
+            if len < 255 {
                 new_slice = Vec::<u8>::with_capacity(len + 1).leak().as_mut_ptr();
                 size = 1;
             } else {

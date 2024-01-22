@@ -1,5 +1,3 @@
-#![allow(internal_features)]
-#![feature(core_intrinsics)]
 use std::sync::Arc;
 mod index;
 
@@ -18,6 +16,8 @@ mod writers;
 mod server;
 mod tests;
 mod scheme;
+mod connection;
+mod stream;
 
 #[cfg(not(test))]
 #[tokio::main]
@@ -42,6 +42,6 @@ fn main() {
             println!("Storage initialized");
             crud(storage.clone());
             persistence(storage.clone());
-            //crud_bench(storage.clone());
+            crud_bench(storage.clone());
         });
 }
