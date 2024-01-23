@@ -70,38 +70,41 @@ impl<'a, S: Stream> BufConnection<S> {
     }
 
     #[inline(always)]
-    fn read_more(reader: &mut BufReader<S>, mut before: usize) -> Status {
-        if before > BUFFER_SIZE {
+    fn read_more(reader: &mut BufReader<S>, mut needed: usize) -> Status {
+        let need_to_read = needed - reader.write_offset;
+        if needed > BUFFER_SIZE {
+            reader.big_buf.resize(needed, 0);
+            let mut read = reader.write_offset - reader.read_offset;
+            reader.big_buf[0..read].copy_from_slice(&reader.buf[reader.read_offset..reader.write_offset]);
+            reader.write_offset = 0;
+            reader.read_offset = 0;
+            loop {
+                match Stream::read(&mut reader.reader, &mut reader.big_buf[read..needed]) {
+                    Ok(0) => {
+                        return Status::Closed;
+                    }
+                    Ok(size) => {
+                        read += size;
+                        if read >= need_to_read {
+                            return Status::Ok;
+                        }
+                    }
+                    Err(e) => {
+                        println!("Read connection error: {:?}", e);
+                        return Status::Error;
+                    }
+                };
+            }
+        }
+        if needed > BUFFER_SIZE - reader.write_offset {
             let left = reader.write_offset - reader.read_offset;
             let buf = Vec::from(&reader.buf[reader.read_offset..reader.write_offset]);
             reader.buf[0..left].copy_from_slice(&buf);
             reader.read_offset = 0;
-            // need to read
-            before = before - reader.write_offset;
             reader.write_offset = left;
-
-            if before > BUFFER_SIZE {
-                reader.big_buf.resize(before, 0);
-                let mut read = 0;
-                loop {
-                    match Stream::read(&mut reader.reader, &mut reader.big_buf[read..before]) {
-                        Ok(0) => {
-                            return Status::Closed;
-                        }
-                        Ok(size) => {
-                            read += size;
-                            if read >= before {
-                                return Status::Ok;
-                            }
-                        }
-                        Err(e) => {
-                            println!("Read connection error: {:?}", e);
-                            return Status::Error;
-                        }
-                    };
-                }
-            }
         }
+
+        let mut read = 0;
         loop {
             match Stream::read(&mut reader.reader, &mut reader.buf[reader.write_offset..]) {
                 Ok(0) => {
@@ -109,7 +112,8 @@ impl<'a, S: Stream> BufConnection<S> {
                 }
                 Ok(size) => {
                     reader.write_offset += size;
-                    if reader.write_offset >= before {
+                    read += size;
+                    if read >= need_to_read {
                         return Status::Ok;
                     }
                 }
@@ -143,46 +147,43 @@ impl<'a, S: Stream> BufConnection<S> {
             return (&[], Status::All);
         }
         let mut reader = &mut self.reader;
-        let mut read_for = reader.read_offset + 2;
         if reader.write_offset < reader.read_offset + 2 {
-            let status = Self::read_more(&mut reader, read_for);
+            let status = Self::read_more(&mut reader, 2);
             if status != Status::Ok {
                 return (&[], status);
             }
         }
 
-        let mut size = u16(&reader.buf[reader.read_offset..reader.read_offset + 2]) as usize;
+        let mut len = u16(&reader.buf[reader.read_offset..reader.read_offset + 2]) as usize;
         reader.read_offset += 2;
         reader.request_size -= 2;
-        if size == u16::MAX as usize {
-            read_for = reader.read_offset + 4;
-            if reader.write_offset < read_for {
-                let status = Self::read_more(&mut reader, read_for);
+        if len == u16::MAX as usize {
+            if reader.write_offset < reader.read_offset + 4 {
+                let status = Self::read_more(&mut reader, 4);
                 if status != Status::Ok {
                     return (&[], status);
                 }
             }
-            size = uint::u32(&reader.buf[reader.read_offset..reader.read_offset + 4]) as usize;
+            len = uint::u32(&reader.buf[reader.read_offset..reader.read_offset + 4]) as usize;
             reader.read_offset += 4;
             reader.request_size -= 4;
         }
 
-        read_for = reader.read_offset + size;
-        if reader.write_offset < read_for {
-            let status = Self::read_more(&mut reader, read_for);
+        if reader.write_offset < reader.read_offset + len {
+            let status = Self::read_more(&mut reader, len);
             if status != Status::Ok {
                 return (&[], status);
             }
         }
 
-        reader.request_size -= size;
-        if size < u16::MAX as usize {
-            reader.read_offset += size;
-            let ptr = &reader.buf[reader.read_offset - size..reader.read_offset];
+        reader.request_size -= len;
+        if len < u16::MAX as usize {
+            reader.read_offset += len;
+            let ptr = &reader.buf[reader.read_offset - len..reader.read_offset];
             return (unsafe {std::mem::transmute::<&[u8], &'a [u8]>(ptr)}, Status::Ok);
         }
 
-        let prt = &reader.big_buf[..size];
+        let prt = &reader.big_buf[..len];
         return (unsafe {std::mem::transmute::<&[u8], &'a [u8]>(prt)}, Status::Ok);
     }
 

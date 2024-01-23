@@ -97,7 +97,6 @@ impl Server {
         let mut log_writer = LogWriter::new(storage.log_file.clone());
         let mut status;
         let mut message;
-
         loop {
             status = connection.read_request();
             if status != Status::Ok {
