@@ -1,5 +1,5 @@
 #[derive(Debug)]
-pub struct  FieldInfo {
+pub struct FieldInfo {
     pub size: usize,
     pub offset: usize
 }

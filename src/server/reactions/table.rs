@@ -9,7 +9,7 @@ use crate::utils::fastbytes::uint;
 use crate::writers::{LogWriter};
 
 #[inline(always)]
-pub fn create_table_in_memory<S: Stream>(connection: &mut BufConnection<S>, storage: Arc<Storage>, message: &[u8], log_writer: &mut LogWriter) -> Status {
+pub fn create_table_in_memory<S: Stream>(connection: &mut BufConnection<S>, storage: &Arc<Storage>, message: &[u8], log_writer: &mut LogWriter) -> Status {
     if message.len() < 7 {
         return connection.write_message(&[actions::BAD_REQUEST]);
     }
@@ -61,12 +61,12 @@ pub fn create_table_in_memory<S: Stream>(connection: &mut BufConnection<S>, stor
 }
 
 #[inline(always)]
-pub fn create_table_on_disk<S: Stream>(connection: &mut BufConnection<S>, storage: Arc<Storage>, message: &[u8],  log_writer: &mut LogWriter) -> Status {
-    if message.len() < 5 {
+pub fn create_table_on_disk<S: Stream>(connection: &mut BufConnection<S>, storage: &Arc<Storage>, message: &[u8],  log_writer: &mut LogWriter) -> Status {
+    if message.len() < 6 {
         return connection.write_message(&[actions::BAD_REQUEST]);
     }
-    let scheme_len = (message[2] as u16) << 8 | message[1] as u16;
-    if scheme_len as usize + 3 + 2 > message.len() {
+    let scheme_len = ((message[2] as u16) << 8 | message[1] as u16) as usize;
+    if scheme_len + 4 + 2 > message.len() {
         return connection.write_message(&[actions::BAD_REQUEST]);
     }
     let user_scheme: &[u8];
@@ -75,17 +75,17 @@ pub fn create_table_on_disk<S: Stream>(connection: &mut BufConnection<S>, storag
         user_scheme = &[];
         scheme = Ok(empty_scheme());
     } else {
-        user_scheme = &message[4..4 + scheme_len as usize];
+        user_scheme = &message[3..3 + scheme_len];
         scheme = scheme_from_bytes(user_scheme);
         if scheme.is_err() {
             return connection.write_message(&[actions::BAD_REQUEST]);
         }
     }
 
-    let name = String::from_utf8(message[1..].to_vec()).unwrap();
+    let name = String::from_utf8(message[3 + scheme_len..].to_vec()).unwrap();
     let name_len = name.len();
     {
-        let mut buf = vec![0; name_len + 5 + scheme_len as usize];
+        let mut buf = vec![0; name_len + 5 + scheme_len];
         buf[0] = actions::CREATE_TABLE_ON_DISK;
         buf[1] = name_len as u8;
         buf[2] = (name_len >> 8) as u8;
@@ -100,15 +100,18 @@ pub fn create_table_on_disk<S: Stream>(connection: &mut BufConnection<S>, storag
         log_writer.write_slice(&buf);
     }
 
+
     let l = Storage::create_on_disk_table(storage.clone(), name, HashInMemoryIndex::new(), scheme.unwrap(), user_scheme);
     if l == (u16::MAX - 1u16) as usize {
         return connection.write_message(&[actions::BAD_REQUEST]);
     }
+
+
     connection.write_message(&[actions::DONE, l as u8, ((l as u16) >> 8) as u8])
 }
 
 #[inline(always)]
-pub fn create_table_cache<S: Stream>(connection: &mut BufConnection<S>, storage: Arc<Storage>, message: &[u8],  log_writer: &mut LogWriter) -> Status {
+pub fn create_table_cache<S: Stream>(connection: &mut BufConnection<S>, storage: &Arc<Storage>, message: &[u8],  log_writer: &mut LogWriter) -> Status {
     if message.len() < 11 {
         return connection.write_message(&[actions::BAD_REQUEST]);
     }
@@ -167,7 +170,7 @@ pub fn create_table_cache<S: Stream>(connection: &mut BufConnection<S>, storage:
 }
 
 #[inline(always)]
-pub fn get_tables_names<S: Stream>(connection: &mut BufConnection<S>, storage: Arc<Storage>) -> Status {
+pub fn get_tables_names<S: Stream>(connection: &mut BufConnection<S>, storage: &Arc<Storage>) -> Status {
     let tables_names;
     let tables_names_not_unwrapped = storage.tables_names.read();
     match tables_names_not_unwrapped {

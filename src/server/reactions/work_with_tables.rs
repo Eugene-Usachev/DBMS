@@ -1,4 +1,6 @@
 use std::sync::Arc;
+use std::sync::atomic::AtomicU32;
+use std::sync::atomic::Ordering::SeqCst;
 use crate::bin_types::{BinKey, BinValue};
 use crate::connection::{BufConnection, Status};
 use crate::constants::actions;
@@ -8,7 +10,7 @@ use crate::utils::fastbytes::uint;
 use crate::writers::LogWriter;
 
 #[inline(always)]
-pub fn get<S: Stream>(connection: &mut BufConnection<S>, storage: Arc<Storage>, message: &[u8]) -> Status {
+pub fn get<S: Stream>(connection: &mut BufConnection<S>, storage: &Arc<Storage>, message: &[u8]) -> Status {
     let tables;
     unsafe {
         tables = &*storage.tables.get();
@@ -29,7 +31,7 @@ pub fn get<S: Stream>(connection: &mut BufConnection<S>, storage: Arc<Storage>, 
 }
 
 #[inline(always)]
-pub fn get_field<S: Stream>(connection: &mut BufConnection<S>, storage: Arc<Storage>, message: &[u8]) -> Status {
+pub fn get_field<S: Stream>(connection: &mut BufConnection<S>, storage: &Arc<Storage>, message: &[u8]) -> Status {
     let tables;
     unsafe {
         tables = &*storage.tables.get();
@@ -51,7 +53,7 @@ pub fn get_field<S: Stream>(connection: &mut BufConnection<S>, storage: Arc<Stor
 }
 
 #[inline(always)]
-pub fn get_fields<S: Stream>(connection: &mut BufConnection<S>, storage: Arc<Storage>, message: &[u8]) -> Status {
+pub fn get_fields<S: Stream>(connection: &mut BufConnection<S>, storage: &Arc<Storage>, message: &[u8]) -> Status {
     let tables;
     unsafe {
         tables = &*storage.tables.get();
@@ -77,7 +79,7 @@ pub fn get_fields<S: Stream>(connection: &mut BufConnection<S>, storage: Arc<Sto
 }
 
 #[inline(always)]
-pub fn insert<S: Stream>(connection: &mut BufConnection<S>, storage: Arc<Storage>, message: &[u8], log_writer: &mut LogWriter) -> Status {
+pub fn insert<S: Stream>(connection: &mut BufConnection<S>, storage: &Arc<Storage>, message: &[u8], log_writer: &mut LogWriter) -> Status {
     let tables;
     unsafe {
         tables = &*storage.tables.get();
@@ -97,7 +99,7 @@ pub fn insert<S: Stream>(connection: &mut BufConnection<S>, storage: Arc<Storage
 }
 
 #[inline(always)]
-pub fn set<S: Stream>(connection: &mut BufConnection<S>, storage: Arc<Storage>, message: &[u8], log_writer: &mut LogWriter) -> Status {
+pub fn set<S: Stream>(connection: &mut BufConnection<S>, storage: &Arc<Storage>, message: &[u8], log_writer: &mut LogWriter) -> Status {
     let tables;
     unsafe {
         tables = &*storage.tables.get();
@@ -117,7 +119,7 @@ pub fn set<S: Stream>(connection: &mut BufConnection<S>, storage: Arc<Storage>, 
 }
 
 #[inline(always)]
-pub fn delete<S: Stream>(connection: &mut BufConnection<S>, storage: Arc<Storage>, message: &[u8], log_writer: &mut LogWriter) -> Status {
+pub fn delete<S: Stream>(connection: &mut BufConnection<S>, storage: &Arc<Storage>, message: &[u8], log_writer: &mut LogWriter) -> Status {
     let tables;
     unsafe {
         tables = &*storage.tables.get();

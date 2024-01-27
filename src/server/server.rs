@@ -1,17 +1,19 @@
-use std::io::Write;
+use std::fs::OpenOptions;
+use std::io::{Seek, SeekFrom, Write};
 use std::net::{TcpListener};
 #[cfg(not(target_os = "windows"))]
 use std::os::unix::net::UnixListener;
+use std::path::PathBuf;
 use std::sync::{Arc};
 use std::thread;
 use crate::connection::{BufConnection, Status};
 
 use crate::constants::actions;
-use crate::constants::size::{WRITE_BUFFER_SIZE};
+use crate::constants::paths::PERSISTENCE_DIR;
 use crate::server::cfg::Config;
 use crate::storage::storage::Storage;
 
-use crate::server::reactions::status::{ping};
+use crate::server::reactions::status::{get_hierarchy, get_shard_metadata, ping};
 use crate::server::reactions::table::{create_table_cache, create_table_in_memory, create_table_on_disk, get_tables_names};
 use crate::server::reactions::work_with_tables::{delete, get, get_field, get_fields, insert, set};
 use crate::stream::Stream;
@@ -21,45 +23,177 @@ pub struct Server {
     storage: Arc<Storage>,
     is_running: bool,
     password: String,
-    tcp_port: u16,
-    unix_port: u16,
+    tcp_addr: String,
+    unix_addr: String,
+
+    pub hierarchy: Vec<String>,
+    hierarchy_file_path: PathBuf,
+
+    pub shard_metadata_file_path: PathBuf,
+}
+
+#[inline(always)]
+fn read_more(chunk: &mut [u8], start_offset: usize, bytes_read: usize, offset_last_record: &mut usize) {
+    let slice_to_copy = &mut Vec::with_capacity(0);
+    chunk[start_offset..bytes_read].clone_into(slice_to_copy);
+    *offset_last_record = bytes_read - start_offset;
+    chunk[0..*offset_last_record].copy_from_slice(slice_to_copy);
 }
 
 impl Server {
     pub fn new(storage: Arc<Storage>) -> Self {
         let config = Config::new();
-        Self {
+
+        let hierarchy_file_path: PathBuf = ["..", PERSISTENCE_DIR, "hierarchy.bin"].iter().collect();
+        let mut hierarchy = Self::get_hierarchy_(&hierarchy_file_path, &config);
+        
+        let shard_metadata_file_path: PathBuf = ["..", PERSISTENCE_DIR, "shard metadata.bin"].iter().collect();
+
+        let mut server = Self {
             storage: storage.clone(),
-            tcp_port: config.tcp_port,
-            unix_port: config.unix_port,
+            tcp_addr: config.tcp_addr,
+            unix_addr: config.unix_addr,
             password: config.password,
             is_running: false,
+            hierarchy,
+            hierarchy_file_path,
+            shard_metadata_file_path
+        };
+
+        server.set_up_shard_metadata_file();
+
+        server
+    }
+
+    fn get_hierarchy_(hierarchy_file_path: &PathBuf, config: &Config) -> Vec<String> {
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .read(true)
+            .open(&hierarchy_file_path);
+        let mut hierarchy;
+        if file.is_err() {
+            panic!("Can't open hierarchy file {}", hierarchy_file_path.display());
+        } else {
+            let mut file = file.unwrap();
+            if file.metadata().unwrap().len() < 3 {
+                hierarchy = vec![config.tcp_addr.clone()];
+                let l = config.tcp_addr.len();
+                file.seek(SeekFrom::Start(0)).expect("Can't seek hierarchy file");
+                // Format is: 1 byte for count of machines in the node and next 2 bytes for a name length and name.
+                Stream::write_all(&mut file, &[1, l as u8, (l >> 8) as u8]).expect("Can't write to hierarchy file");
+                Stream::write_all(&mut file, hierarchy[0].as_bytes()).expect("Can't write to hierarchy file");
+            } else {
+                let mut l;
+                let mut read;
+                let mut offset = 0;
+                let mut buf = vec![0u8; 4096];
+                let mut offset_last_record = 0;
+
+                hierarchy = Vec::with_capacity(1);
+                'read: loop {
+                    read = file.read(&mut buf).expect("Can't read from hierarchy file");
+                    if read == 0 {
+                        break;
+                    }
+
+                    offset = 0;
+                    read += offset_last_record;
+
+                    loop {
+                        if read < 2 + offset {
+                            read_more(&mut buf, offset, read, &mut offset_last_record);
+                            continue 'read;
+                        }
+                        l = buf[offset] as usize + (buf[offset + 1] as usize) << 8;
+                        offset += 2;
+                        if read < l + offset {
+                            read_more(&mut buf, offset, read, &mut offset_last_record);
+                            continue 'read;
+                        }
+                        hierarchy.push(String::from_utf8_lossy(&buf[offset..l + offset]).to_string());
+                        offset += l;
+                    }
+                }
+            }
+        }
+
+        hierarchy
+    }
+    
+    fn set_up_shard_metadata_file(&mut self) {
+        /// We split all data in shards. We have 65,536 shards, and we distribute shards into different nodes.
+        /// We store shard metadata as [`number of machine addresses`, [`address length`, `machine address`]; 65,536].
+        /// We always think that the leftmost alive machine is the master.
+
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .read(true)
+            .open(&self.shard_metadata_file_path);
+        if file.is_err() {
+            panic!("Can't open shard metadata file {}", self.shard_metadata_file_path.display());
+        }
+        
+        let mut file = file.unwrap();
+        if file.metadata().unwrap().len() == 0 {
+            if self.hierarchy.len() == 1 {
+                let address_len = self.hierarchy[0].len();
+                // 2 bytes for length of address and 1 byte for number of machines
+                let size = address_len + 3;
+                let mut value = vec![0u8; size];
+                value[0] = 1;
+                value[1] = address_len as u8;
+                value[2] = address_len as u8;
+                value[3..].copy_from_slice(self.hierarchy[0].as_bytes());
+                let mut buf = Vec::with_capacity(size * 65_536);
+                for _i in 0..65_536 {
+                    buf.extend_from_slice(&value);
+                }
+
+                Stream::write_all(&mut file, &buf).expect("Can't write to shard metadata file");
+            } else {
+                // TODO: set up with cluster
+            }
+        } else {
+            // TODO: set up with cluster
         }
     }
 
-    pub fn run(&mut self) {
+    fn connect_to_cluster(&mut self) {
+
+    }
+
+    pub fn run(mut self) {
         if self.is_running {
             return;
         }
         self.is_running = true;
+
+        self.connect_to_cluster();
+
+        let server = Arc::new(self);
+
         #[cfg(not(target_os = "windows"))] {
-            let storage = self.storage.clone();
-            let unix_port = self.unix_port;
+            let storage = server.storage.clone();
+            let unix_port = server.unix_addr.clone();
+            let server = server.clone();
             thread::spawn(move || {
-                let listener_ = UnixListener::bind(format!("dbms:{}", unix_port));
+                let listener_ = UnixListener::bind(format!("{}", unix_port));
                 let listener = match listener_ {
                     Ok(listener) => listener,
                     Err(e) => {
-                        panic!("Can't bind to port: {}, the error is: {:?}", unix_port, e);
+                        panic!("Can't bind to address: {}, the error is: {:?}", unix_port, e);
                     }
                 };
-                println!("Server tcp listening on port {}", unix_port);
+                println!("Server unix listening on address {}", unix_port);
                 for stream in listener.incoming() {
                     let storage = storage.clone();
+                    let server = server.clone();
                     thread::spawn(move || {
                         match stream {
                             Ok(stream) => {
-                                Self::handle_client(storage, BufConnection::new(stream));
+                                Self::handle_client(server, storage, BufConnection::new(stream));
                             }
                             Err(e) => {
                                 println!("Error: {}", e);
@@ -69,20 +203,21 @@ impl Server {
                 }
             });
         }
-        let listener_ = TcpListener::bind(format!("dbms:{}", self.tcp_port));
+        let listener_ = TcpListener::bind(format!("{}", server.tcp_addr.clone()));
         let listener = match listener_ {
             Ok(listener) => listener,
             Err(e) => {
-                panic!("Can't bind to port: {}, the error is: {:?}", self.tcp_port, e);
+                panic!("Can't bind to address: {}, the error is: {:?}", server.tcp_addr.clone(), e);
             }
         };
-        println!("Server tcp listening on port {}", self.tcp_port);
+        println!("Server tcp listening on address {}", server.tcp_addr.clone());
         for stream in listener.incoming() {
-            let storage= self.storage.clone();
+            let server = server.clone();
+            let storage= server.storage.clone();
             thread::spawn(move || {
                 match stream {
                     Ok(stream) => {
-                        Self::handle_client(storage, BufConnection::new(stream));
+                        Self::handle_client(server, storage, BufConnection::new(stream));
                     }
                     Err(e) => {
                         println!("Error: {}", e);
@@ -93,7 +228,7 @@ impl Server {
     }
 
     #[inline(always)]
-    fn handle_client<S: Stream>(storage: Arc<Storage>, mut connection: BufConnection<S>) {
+    fn handle_client<S: Stream>(server: Arc<Server>, storage: Arc<Storage>, mut connection: BufConnection<S>) {
         let mut log_writer = LogWriter::new(storage.log_file.clone());
         let mut status;
         let mut message;
@@ -116,71 +251,21 @@ impl Server {
                     return;
                 }
 
-                status = Self::handle_message(&mut connection, storage.clone(), message, &mut log_writer);
+                status = Self::handle_message(&mut connection, &server, &storage, message, &mut log_writer);
                 if status != Status::Ok {
                     connection.close().expect("Failed to close connection");
                     return;
                 }
             }
         }
-
-        // TODO r
-        // while match Stream::read(connection, &mut read_buffer) {
-        //     Ok(0) => false,
-        //     Ok(mut pipe_size) => {
-        //         let real_pipe_size = uint::u32(&read_buffer[0..4]);
-        //         while real_pipe_size != pipe_size as u32 {
-        //             match Stream::read(connection, &mut read_buffer[pipe_size..]) {
-        //                 Ok(0) => {
-        //                     break;
-        //                 }
-        //                 Ok(size) => {
-        //                     pipe_size += size;
-        //                 }
-        //                 Err(e) => {
-        //                     println!("Error: {}", e);
-        //                 }
-        //             }
-        //         }
-        //         let mut offset = 4;
-        //         let mut write_offset = 0;
-        //         loop {
-        //             if offset >= pipe_size - 2 {
-        //                 break;
-        //             }
-        //             let size:u16 = uint::u16(&read_buffer[offset..offset+2]);
-        //             if size == 65535 {
-        //                 let big_size:u32 = uint::u32(&read_buffer[offset+2..offset+6]);
-        //                 offset += 6;
-        //                 write_offset = Self::handle_message(connection, storage.clone(), &read_buffer[offset..offset + big_size as usize],
-        //                                                     &mut write_buffer, write_offset, &mut log_buffer, &mut log_buffer_offset);
-        //                 offset += big_size as usize;
-        //             } else {
-        //                 offset += 2;
-        //                 write_offset = Self::handle_message(connection, storage.clone(), &read_buffer[offset..offset + size as usize],
-        //                                                     &mut write_buffer, write_offset, &mut log_buffer, &mut log_buffer_offset);
-        //                 offset += size as usize;
-        //             }
-        //         }
-        //         if log_buffer_offset > 0 {
-        //             storage.log_file.file.lock().unwrap().write(&log_buffer[..log_buffer_offset]).expect("Can't write to log file");
-        //             log_buffer_offset = 0;
-        //         }
-        //         Stream::write_all(connection, &write_buffer[..write_offset]).expect("Can't write to stream");
-        //         true
-        //     },
-        //     Err(e) => {
-        //         println!("An error occurred, error has a message: {:?}", e);
-        //         connection.shutdown().unwrap();
-        //         false
-        //     }
-        // } {};
     }
 
     #[inline(always)]
-    fn handle_message<S: Stream>(connection: &mut BufConnection<S>, storage: Arc<Storage>, message: &[u8], log_writer: &mut LogWriter) -> Status {
+    fn handle_message<S: Stream>(connection: &mut BufConnection<S>, server: &Arc<Server>, storage: &Arc<Storage>, message: &[u8], log_writer: &mut LogWriter) -> Status {
         return match message[0] {
             actions::PING => ping(connection),
+            actions::GET_SHARD_METADATA => get_shard_metadata(connection, server),
+            actions::GET_HIERARCHY => get_hierarchy(connection, server),
 
             actions::CREATE_TABLE_IN_MEMORY => create_table_in_memory(connection, storage, message, log_writer),
             actions::CREATE_TABLE_CACHE => create_table_cache(connection, storage, message, log_writer),
@@ -200,73 +285,3 @@ impl Server {
         }
     }
 }
-
-// TODO r
-// #[inline(always)]
-// pub fn write_msg(stream: &mut impl Stream, buf: &mut [u8], mut offset: usize, msg: &[u8]) -> usize {
-//     let l = msg.len();
-//
-//     if l + offset > READ_BUFFER_SIZE_WITHOUT_SIZE {
-//         stream.write_all(&buf).expect("Can't write to stream");
-//         offset = 0; // We flushed the buffer. Now we need to start from the beginning, but we still are responding for the same pipe.
-//     }
-//
-//     // 65535 is 2 << 16 - 1
-//     if l < 65535 {
-//         buf[offset..offset+2].copy_from_slice(&[l as u8, ((l >> 8) as u8)]);
-//         offset += 2;
-//     } else {
-//         buf[offset..offset+6].copy_from_slice(&[255, 255, l as u8, ((l >> 8) as u8), ((l >> 16) as u8), ((l >> 24) as u8)]);
-//         offset += 6;
-//     }
-//
-//     // We try to write all the message. If l > allowed size, we write a lot of times.
-//     let mut can_write = READ_BUFFER_SIZE - offset;
-//     let mut written = 0;
-//     while l > can_write {
-//         buf[offset..offset+can_write].copy_from_slice(&msg[written..written + can_write]);
-//         written += can_write;
-//         stream.write_all(&buf).expect("Can't write to stream");
-//         offset = 0;
-//         can_write = READ_BUFFER_SIZE;
-//     }
-//
-//     buf[offset..offset+l].copy_from_slice(msg);
-//     return offset + l;
-// }
-//
-// #[inline(always)]
-// pub fn write_msg_with_status_separate(stream: &mut impl Stream, buf: &mut [u8], mut offset: usize, status: u8, msg: &[u8]) -> usize {
-//     let l = msg.len() + 1;
-//
-//     if l + offset > READ_BUFFER_SIZE_WITHOUT_SIZE {
-//         stream.write_all(&buf).expect("Can't write to stream");
-//         offset = 0; // We flushed the buffer. Now we need to start from the beginning, but we still are responding for the same pipe.
-//     }
-//
-//     // 65535 is 2 << 16 - 1
-//     if l < 65535 {
-//         buf[offset..offset+2].copy_from_slice(&[l as u8, ((l >> 8) as u8)]);
-//         offset += 2;
-//     } else {
-//         buf[offset..offset+6].copy_from_slice(&[255, 255, l as u8, ((l >> 8) as u8), ((l >> 16) as u8), ((l >> 24) as u8)]);
-//         offset += 6;
-//     }
-//
-//     buf[offset] = status;
-//     offset += 1;
-//
-//     // We try to write all the message. If l > allowed size, we write a lot of times.
-//     let mut can_write = READ_BUFFER_SIZE - offset;
-//     let mut written = 0;
-//     while l > can_write {
-//         buf[offset..offset+can_write].copy_from_slice(&msg[written..written + can_write]);
-//         written += can_write;
-//         stream.write_all(&buf).expect("Can't write to stream");
-//         offset = 0;
-//         can_write = READ_BUFFER_SIZE;
-//     }
-//
-//     buf[offset..offset+l - 1].copy_from_slice(msg);
-//     return offset + l - 1;
-// }

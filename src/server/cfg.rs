@@ -1,32 +1,32 @@
 use std::{env};
 
 pub struct Config {
-    pub(crate) tcp_port: u16,
-    pub(crate) unix_port: u16,
+    pub(crate) tcp_addr: String,
+    pub(crate) unix_addr: String,
     pub(crate) password: String,
 }
 
 impl Config {
     pub(crate) fn new() -> Self {
-        let tcp_port = match env::var("TCP_PORT") {
+        let tcp_port = match env::var("TCP_ADDR") {
             Ok(value) => {
-                println!("The port was set to: {} using the environment variable \"TCP_PORT\"", value);
-                value.parse().unwrap_or(10000)
+                println!("The address was set to: {} using the environment variable \"TCP_ADDR\"", value);
+                value.parse().unwrap_or("localhost:10000".to_string())
             },
             Err(_) => {
-                println!("The port was not set using the environment variable \"TCP_PORT\", setting it to 10000");
-                10000
+                println!("The address was not set using the environment variable \"TCP_ADDR\", setting it to \"localhost:10000\"");
+                "localhost:10000".to_string()
             }
         };
 
-        let unix_port = match env::var("UNIX_PORT") {
+        let unix_addr = match env::var("UNIX_ADDR") {
             Ok(value) => {
-                println!("The port was set to: {} using the environment variable \"UNIX_PORT\"", value);
-                value.parse().unwrap_or(10002)
+                println!("The address was set to: {} using the environment variable \"UNIX_ADDR\"", value);
+                value.parse().unwrap_or("localhost:10002".to_string())
             },
             Err(_) => {
-                println!("The port was not set using the environment variable \"UNIX_PORT\", setting it to 10002");
-                10002
+                println!("The address was not set using the environment variable \"UNIX_PORT\", setting it to \"localhost:10002\"");
+                "localhost:10002".to_string()
             }
         };
 
@@ -41,6 +41,6 @@ impl Config {
             }
         };
 
-        Self { tcp_port, password, unix_port }
+        Self { tcp_addr: tcp_port, password, unix_addr: unix_addr }
     }
 }
