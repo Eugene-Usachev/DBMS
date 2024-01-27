@@ -22,6 +22,6 @@ USER root
 
 COPY --from=build /bin/server /bin/
 
-EXPOSE 8081
+EXPOSE 8082
 
 CMD ["/bin/server"]
