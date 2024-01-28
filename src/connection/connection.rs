@@ -71,7 +71,6 @@ impl<'a, S: Stream> BufConnection<S> {
 
     #[inline(always)]
     fn read_more(reader: &mut BufReader<S>, mut needed: usize) -> Status {
-        let need_to_read = needed - reader.write_offset;
         if needed > BUFFER_SIZE {
             reader.big_buf.resize(needed, 0);
             let mut read = reader.write_offset - reader.read_offset;
@@ -85,7 +84,7 @@ impl<'a, S: Stream> BufConnection<S> {
                     }
                     Ok(size) => {
                         read += size;
-                        if read >= need_to_read {
+                        if read >= needed {
                             return Status::Ok;
                         }
                     }
@@ -113,7 +112,7 @@ impl<'a, S: Stream> BufConnection<S> {
                 Ok(size) => {
                     reader.write_offset += size;
                     read += size;
-                    if read >= need_to_read {
+                    if read >= needed {
                         return Status::Ok;
                     }
                 }
