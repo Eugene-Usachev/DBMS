@@ -8,7 +8,7 @@ pub struct Config {
 
 impl Config {
     pub(crate) fn new() -> Self {
-        let tcp_port = match env::var("TCP_ADDR") {
+        let tcp_addr = match env::var("TCP_ADDR") {
             Ok(value) => {
                 println!("The address was set to: {} using the environment variable \"TCP_ADDR\"", value);
                 value.parse().unwrap_or("localhost:10000".to_string())
@@ -41,6 +41,6 @@ impl Config {
             }
         };
 
-        Self { tcp_addr: tcp_port, password, unix_addr: unix_addr }
+        Self { tcp_addr, password, unix_addr }
     }
 }
