@@ -1,6 +1,6 @@
 use std::fs::OpenOptions;
 use std::io::{Seek, SeekFrom, Write};
-use std::net::{TcpListener};
+use std::net::{TcpListener, TcpStream};
 use std::ops::Deref;
 #[cfg(not(target_os = "windows"))]
 use std::os::unix::net::UnixListener;
@@ -12,6 +12,7 @@ use crate::connection::{BufConnection, Status};
 use crate::constants::actions;
 use crate::constants::actions::DONE;
 use crate::constants::paths::PERSISTENCE_DIR;
+use crate::node::Node;
 use crate::server::cfg::Config;
 use crate::storage::storage::Storage;
 
@@ -25,15 +26,19 @@ use crate::writers::LogWriter;
 pub struct Server {
     storage: Arc<Storage>,
     is_running: bool,
+
     password: String,
     tcp_addr: String,
     unix_addr: String,
+    node_addr: String,
 
     pub hierarchy: Vec<Vec<String>>,
     hierarchy_file_path: PathBuf,
 
     // Shard metadata is array with 65536 length, where every item is 16-bit number of node, that contains this shard.
     pub shard_metadata_file_path: PathBuf,
+
+    node: Node
 }
 
 #[inline(always)]
@@ -49,7 +54,6 @@ impl Server {
         let config = Config::new();
 
         let hierarchy_file_path: PathBuf = ["..", PERSISTENCE_DIR, "hierarchy.bin"].iter().collect();
-        let mut hierarchy = Self::get_hierarchy_(&hierarchy_file_path, &config);
         
         let shard_metadata_file_path: PathBuf = ["..", PERSISTENCE_DIR, "shard metadata.bin"].iter().collect();
 
@@ -57,32 +61,38 @@ impl Server {
             storage: storage.clone(),
             tcp_addr: config.tcp_addr,
             unix_addr: config.unix_addr,
+            node_addr: config.node_addr,
             password: config.password,
             is_running: false,
-            hierarchy,
+            hierarchy: Vec::with_capacity(0),
             hierarchy_file_path,
-            shard_metadata_file_path
+            shard_metadata_file_path,
+            node: Node::new()
         };
 
+        server.rise_hierarchy_and_lookup_node();
+
         server.set_up_shard_metadata_file();
+
+        server.connect_to_node();
 
         server
     }
 
-    fn get_hierarchy_(hierarchy_file_path: &PathBuf, config: &Config) -> Vec<Vec<String>> {
+    fn rise_hierarchy_and_lookup_node(&mut self) {
         let mut file = OpenOptions::new()
             .write(true)
             .create(true)
             .read(true)
-            .open(&hierarchy_file_path);
+            .open(&self.hierarchy_file_path);
         let mut hierarchy;
         if file.is_err() {
-            panic!("Can't open hierarchy file {}", hierarchy_file_path.display());
+            panic!("Can't open hierarchy file {}", self.hierarchy_file_path.display());
         } else {
             let mut file = file.unwrap();
             if file.metadata().unwrap().len() < 3 {
-                hierarchy = vec![vec![config.tcp_addr.clone()]];
-                let l = config.tcp_addr.len();
+                hierarchy = vec![vec![self.tcp_addr.clone()]];
+                let l = self.tcp_addr.len();
                 file.seek(SeekFrom::Start(0)).expect("Can't seek hierarchy file");
                 // Format is: 1 byte for count of machines in the node and next 2 bytes for a name length and name.
                 Stream::write_all(&mut file, &[1, l as u8, (l >> 8) as u8]).expect("Can't write to hierarchy file");
@@ -94,7 +104,8 @@ impl Server {
                 let mut number_of_machines = 0;
                 let mut buf = vec![0u8; 4096];
                 let mut offset_last_record = 0;
-                let mut node = vec![];
+                let mut node: Vec<String> = vec![];
+                let mut this_node = false;
 
                 hierarchy = Vec::with_capacity(1);
                 'read: loop {
@@ -115,6 +126,16 @@ impl Server {
                             number_of_machines = buf[offset];
                             offset += 1;
                             if node.len() > 0 {
+                                if this_node {
+                                    this_node = false;
+                                    let mut list = Vec::with_capacity(node.len() - 1);
+                                    for addr in &node {
+                                        if addr != &self.tcp_addr {
+                                            list.push(addr.to_string());
+                                        }
+                                    }
+                                    self.node.set(&list);
+                                }
                                 hierarchy.push(node);
                             }
                             node = Vec::with_capacity(number_of_machines as usize);
@@ -130,20 +151,25 @@ impl Server {
                             read_more(&mut buf, offset, read, &mut offset_last_record);
                             continue 'read;
                         }
-                        node.push(String::from_utf8_lossy(&buf[offset..l + offset]).to_string());
+                        let name = String::from_utf8_lossy(&buf[offset..l + offset]).to_string();
+                        if self.tcp_addr == name {
+                            this_node = true;
+                        }
+                        node.push(name);
                         offset += l;
                         number_of_machines -= 1;
                     }
                 }
                 if node.len() == 0 {
                     println!("Incorrect hierarchy file!");
-                    return vec![vec![config.tcp_addr.clone()]];
+                    self.hierarchy = vec![vec![self.tcp_addr.clone()]];
+                    return;
                 }
                 hierarchy.push(node);
             }
         }
 
-        hierarchy
+        self.hierarchy = hierarchy
     }
     
     fn set_up_shard_metadata_file(&mut self) {
@@ -175,6 +201,10 @@ impl Server {
         } else {
             // TODO: set up with cluster
         }
+    }
+
+    fn connect_to_node(&mut self) {
+
     }
 
     fn connect_to_cluster(&mut self) {
