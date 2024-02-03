@@ -1,14 +1,15 @@
 use std::{env};
 
 pub struct Config {
-    pub(crate) tcp_addr: String,
-    pub(crate) unix_addr: String,
-    pub(crate) password: String,
+    pub tcp_addr: String,
+    pub unix_addr: String,
+    pub password: String,
+    pub node_addr: String,
 }
 
 impl Config {
     pub(crate) fn new() -> Self {
-        let tcp_port = match env::var("TCP_ADDR") {
+        let tcp_addr = match env::var("TCP_ADDR") {
             Ok(value) => {
                 println!("The address was set to: {} using the environment variable \"TCP_ADDR\"", value);
                 value.parse().unwrap_or("localhost:10000".to_string())
@@ -41,6 +42,17 @@ impl Config {
             }
         };
 
-        Self { tcp_addr: tcp_port, password, unix_addr: unix_addr }
+        let node_addr = match env::var("NODE_ADDR") {
+            Ok(value) => {
+                println!("The node address was set to: {} using the environment variable \"NODE_ADDR\"", value);
+                value
+            },
+            Err(_) => {
+                println!("The node address was not set using the environment variable \"NODE_ADDR\". Single mode is used.");
+                String::new()
+            }
+        };
+
+        Self { tcp_addr, password, unix_addr, node_addr }
     }
 }

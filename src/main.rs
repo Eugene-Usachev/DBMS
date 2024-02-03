@@ -18,6 +18,7 @@ mod tests;
 mod scheme;
 mod connection;
 mod stream;
+mod node;
 
 #[cfg(not(test))]
 #[tokio::main]

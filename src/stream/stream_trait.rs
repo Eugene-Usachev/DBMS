@@ -3,9 +3,11 @@ use std::io::{Read, Write};
 use std::net::{Shutdown, TcpStream};
 #[cfg(not(target_os = "windows"))]
 use std::os::unix::net::UnixStream;
+use std::time::Duration;
 
 pub trait Stream: Read + Write {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize>;
+    fn set_read_timeout(&self, timeout: Option<std::time::Duration>) -> std::io::Result<()>;
     fn write_all(&mut self, buf: &[u8])  -> std::io::Result<()>;
     fn shutdown(&mut self) -> std::io::Result<()>;
     fn clone_ptr<'a>(&self) -> Self;
@@ -29,6 +31,11 @@ impl Stream for UnixStream {
                 }
             }
         }
+    }
+
+    #[inline(always)]
+    fn set_read_timeout(&self, timeout: Option<std::time::Duration>) -> std::io::Result<()> {
+        UnixStream::set_read_timeout(self, timeout)
     }
 
     #[inline(always)]
@@ -65,6 +72,12 @@ impl Stream for TcpStream {
             }
         }
     }
+
+    #[inline(always)]
+    fn set_read_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()> {
+        TcpStream::set_read_timeout(self, timeout)
+    }
+
     #[inline(always)]
     fn write_all(&mut self, buf: &[u8]) -> std::io::Result<()> {
         <TcpStream as Write>::write_all(self, buf)
@@ -85,6 +98,11 @@ impl Stream for File {
     #[inline(always)]
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         <File as Read>::read(self, buf)
+    }
+
+    #[inline(always)]
+    fn set_read_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()> {
+        File::set_read_timeout(self, timeout)
     }
 
     #[inline(always)]

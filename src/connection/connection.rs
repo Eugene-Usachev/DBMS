@@ -1,5 +1,6 @@
 use std::fmt::{Display};
 use std::io::{BufWriter, Read, Write};
+use std::time::Duration;
 use crate::stream::Stream;
 use crate::utils::fastbytes::uint;
 use crate::utils::fastbytes::uint::u16;
@@ -38,8 +39,8 @@ pub enum Status {
 }
 
 pub struct BufConnection<S: Stream> {
-    reader: BufReader<S>,
-    writer: BufWriter<S>,
+    pub reader: BufReader<S>,
+    pub writer: BufWriter<S>,
 }
 
 impl<'a, S: Stream> BufConnection<S> {
