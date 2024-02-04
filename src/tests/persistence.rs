@@ -1,9 +1,16 @@
+#[cfg(test)]
 use std::io::{Write};
+#[cfg(test)]
 use std::sync::Arc;
+#[cfg(test)]
 use crate::bin_types::{BinKey, BinValue};
+#[cfg(test)]
 use crate::index::HashInMemoryIndex;
+#[cfg(test)]
 use crate::scheme::scheme::empty_scheme;
+#[cfg(test)]
 use crate::storage::Storage;
+#[cfg(test)]
 use crate::writers::LogWriter;
 
 #[cfg(test)]
@@ -32,7 +39,7 @@ fn test_dump(storage: Arc<Storage>) {
     let number1 = Storage::create_in_memory_table(storage.clone(), "persistence 1".to_string(), HashInMemoryIndex::new(), false, empty_scheme(), SCHEMA);
     let number2 = Storage::create_in_memory_table(storage.clone(), "persistence 2".to_string(), HashInMemoryIndex::new(), false, empty_scheme(), SCHEMA);
     let tables;
-    let mut log_writer = LogWriter::new(storage.log_file.clone());
+    let mut log_writer = LogWriter::new(storage.log_writer.clone());
     unsafe {
         tables = &*storage.tables.get()
     };
@@ -117,7 +124,7 @@ fn test_dump_and_log(storage: Arc<Storage>) {
         values.push(BinValue::new(format!("value{i}").as_bytes()));
     }
 
-    let mut log_writer = LogWriter::new(storage.log_file.clone());
+    let mut log_writer = LogWriter::new(storage.log_writer.clone());
 
     for i in 0..5000 {
         tables[number1].insert(keys[i].clone(), values[i].clone(), &mut log_writer);

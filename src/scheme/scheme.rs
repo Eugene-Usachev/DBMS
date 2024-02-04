@@ -1,11 +1,17 @@
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value};
 use crate::bin_types::BinValue;
 use crate::scheme::field_info::{field_type_from_string, FieldInfo, get_size};
+#[test]
+use serde_json::json;
+#[test]
 use crate::utils::fastbytes::uint::{u16, u64, u64tob};
 use crate::writers::get_size_for_value_len;
 
-pub type Scheme = Box<[FieldInfo]>;
+#[derive(Clone)]
+pub struct Scheme {
+    pub fields: Box<[FieldInfo]>
+}
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct SchemeJSON {
@@ -56,16 +62,16 @@ pub fn scheme_from_bytes(data: &[u8]) -> Result<Scheme, &'static str> {
         scheme.push(FieldInfo::new(size, offset_to_unsized_fields));
     }
 
-    return Ok(scheme.into_boxed_slice());
+    return Ok(Scheme { fields: scheme.into_boxed_slice() });
 }
 
 pub fn empty_scheme() -> Scheme {
-    vec![].into_boxed_slice()
+    Scheme { fields: vec![].into_boxed_slice() }
 }
 
 #[inline(always)]
 pub fn get_field(value: &BinValue, scheme: &Scheme, number: usize) -> Vec<u8> {
-    let info = &scheme[number];
+    let info = &scheme.fields[number];
     let size = info.size;
     let mut offset = info.offset;
     let ptr;
@@ -147,7 +153,7 @@ pub fn get_fields(value: &BinValue, scheme: &Scheme, numbers: &[usize]) -> Vec<u
     let mut unsized_field_offset = usize::MAX;
 
     for number in numbers.iter() {
-        let info = &scheme[*number];
+        let info = &scheme.fields[*number];
         let size = info.size;
         let offset = info.offset;
         // get sized
@@ -216,7 +222,7 @@ pub fn get_fields(value: &BinValue, scheme: &Scheme, numbers: &[usize]) -> Vec<u
 
 #[inline(always)]
 pub fn update_field(value: &mut BinValue, scheme: &Scheme, number: usize, new_value: &[u8]) {
-    let info = &scheme[number];
+    let info = &scheme.fields[number];
     let size = info.size;
     let mut offset = info.offset;
     let bin_value_len = value.len();
@@ -281,7 +287,7 @@ pub fn update_field(value: &mut BinValue, scheme: &Scheme, number: usize, new_va
     let real_len_of_old_value = len_of_field + size_of_field_len;
     let new_value_len_size = get_size_for_value_len(new_value.len());
     let new_bin_value_len = bin_value_len - real_len_of_old_value + new_value.len() + new_value_len_size;
-    let mut buf = BinValue::with_len(new_bin_value_len);
+    let buf = BinValue::with_len(new_bin_value_len);
     let mut buf_offset = get_size_for_value_len(new_bin_value_len);
     unsafe {
         // copy before

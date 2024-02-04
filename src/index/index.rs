@@ -1,19 +1,19 @@
-pub trait Index<K, V>: Sync + Send {
+pub trait Index<K, V> {
     /// Inserts a key-value pair into the index. Do nothing if the key already exists.
     ///
     /// Returns `true` if inserted, `false` otherwise.
-    fn insert(&self, key: K, value: V) -> bool;
-    fn set(&self, key: K, value: V) -> Option<V>;
+    fn insert(&mut self, key: K, value: V) -> bool;
+    fn set(&mut self, key: K, value: V) -> Option<V>;
     fn get(&self, key: &K) -> Option<V>;
-    fn get_and_modify<F>(&self, key: &K, f: F) -> Option<V> where F: FnMut(&mut V);
-    fn remove(&self, key: &K) -> Option<V>;
+    fn get_and_modify<F>(&mut self, key: &K, f: F) -> Option<V> where F: FnMut(&mut V);
+    fn remove(&mut self, key: &K) -> Option<V>;
     fn contains(&self, key: &K) -> bool;
-    fn clear(&self);
-    fn resize(&self, new_size: usize);
+    fn clear(&mut self);
+    fn resize(&mut self, new_size: usize);
     fn count(&self) -> usize;
     fn for_each<F>(&self, f: F) where F: Fn(&K, &V);
-    fn for_each_mut<F>(&self, f: F) where F: FnMut(&K, &mut V);
-    fn retain<F>(&self, f: F) where F: FnMut(&K, &mut V) -> bool + Clone;
+    fn for_each_mut<F>(&mut self, f: F) where F: FnMut(&K, &mut V);
+    fn retain<F>(&mut self, f: F) where F: FnMut(&K, &mut V) -> bool + Clone;
 }
 
 pub const SIZE: usize = 512;

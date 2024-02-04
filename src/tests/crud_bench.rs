@@ -1,8 +1,14 @@
+#[cfg(test)]
 use std::sync::Arc;
+#[cfg(test)]
 use crate::bin_types::{BinKey, BinValue};
+#[cfg(test)]
 use crate::index::HashInMemoryIndex;
+#[cfg(test)]
 use crate::scheme::scheme::empty_scheme;
+#[cfg(test)]
 use crate::storage::Storage;
+#[cfg(test)]
 use crate::writers::LogWriter;
 
 #[cfg(test)]
@@ -30,7 +36,7 @@ pub fn crud_bench(storage: Arc<Storage>) {
             let keys = keys.clone();
             let values = values.clone();
             joins.push(std::thread::spawn(move || unsafe {
-                let mut log_writer = LogWriter::new(storage.log_file.clone());
+                let mut log_writer = LogWriter::new(storage.log_writer.clone());
                 for j in i * COUNT..(i + 1) * COUNT {
                     (*storage.tables.get())[number].set(keys[j].clone(), values[j].clone(), &mut log_writer);
                 }
@@ -45,7 +51,7 @@ pub fn crud_bench(storage: Arc<Storage>) {
             let storage = storage.clone();
             let keys = keys.clone();
             joins.push(std::thread::spawn(move || unsafe {
-                let mut log_writer = LogWriter::new(storage.log_file.clone());
+                let mut log_writer = LogWriter::new(storage.log_writer.clone());
                 for j in i * COUNT..(i + 1) * COUNT {
                     (*storage.tables.get())[number].delete(&keys[j], &mut log_writer);
                 }
@@ -63,7 +69,7 @@ pub fn crud_bench(storage: Arc<Storage>) {
         let keys = keys.clone();
         let values = values.clone();
         joins.push(std::thread::spawn(move || unsafe {
-            let mut log_writer = LogWriter::new(storage.log_file.clone());
+            let mut log_writer = LogWriter::new(storage.log_writer.clone());
             for j in i * COUNT..(i + 1) * COUNT {
                 (*storage.tables.get())[number].insert(keys[j].clone(), values[j].clone(), &mut log_writer);
             }
@@ -97,7 +103,7 @@ pub fn crud_bench(storage: Arc<Storage>) {
         let keys = keys.clone();
         let values = values.clone();
         joins.push(std::thread::spawn(move || unsafe {
-            let mut log_writer = LogWriter::new(storage.log_file.clone());
+            let mut log_writer = LogWriter::new(storage.log_writer.clone());
             for j in i * COUNT..(i + 1) * COUNT {
                 (*storage.tables.get())[number].set(keys[j].clone(), values[j].clone(), &mut log_writer);
             }
@@ -114,7 +120,7 @@ pub fn crud_bench(storage: Arc<Storage>) {
         let storage = storage.clone();
         let keys = keys.clone();
         joins.push(std::thread::spawn(move || unsafe {
-            let mut log_writer = LogWriter::new(storage.log_file.clone());
+            let mut log_writer = LogWriter::new(storage.log_writer.clone());
             for j in i * COUNT..(i + 1) * COUNT {
                 (*storage.tables.get())[number].delete(&keys[j], &mut log_writer);
             }

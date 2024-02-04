@@ -1,27 +1,26 @@
-use std::fs::File;
-use std::io::Read;
 use std::sync::Arc;
+use tokio::fs::File;
+use tokio::io::AsyncReadExt;
 use crate::connection::{BufConnection, Status};
 use crate::constants::actions;
 use crate::server::server::Server;
-use crate::stream::Stream;
 
 #[inline(always)]
-pub fn ping<S: Stream>(connection: &mut BufConnection<S>) -> Status {
-    connection.write_message(&[actions::DONE, actions::PING])
+pub async fn ping(connection: &mut BufConnection) -> Status {
+    connection.write_message(&[actions::DONE, actions::PING]).await
 }
 
 #[inline(always)]
-pub fn get_shard_metadata<S: Stream>(connection: &mut BufConnection<S>, server: &Arc<Server>) -> Status {
+pub async fn get_shard_metadata(connection: &mut BufConnection, server: &Arc<Server>) -> Status {
     let ref path= server.shard_metadata_file_path;
-    let mut file = File::open(path).expect("Can't open shard metadata file!");
+    let mut file = File::open(path).await.expect("Can't open shard metadata file!");
     let mut buf = Vec::with_capacity(65536 * 2);
-    file.read_to_end(&mut buf).expect("Can't read shard metadata file!");
-    connection.write_message_and_status(&buf, actions::DONE)
+    file.read_to_end(&mut buf).await.expect("Can't read shard metadata file!");
+    connection.write_message_and_status(&buf, actions::DONE).await
 }
 
 #[inline(always)]
-pub fn get_hierarchy<S: Stream>(connection: &mut BufConnection<S>, server: &Arc<Server>) -> Status {
+pub async fn get_hierarchy(connection: &mut BufConnection, server: &Arc<Server>) -> Status {
     let ref hierarchy = server.hierarchy;
     // We think that average production machine address length is 20 and average node contains 3 machines.
     // Anyway get_hierarchy is rare action, so we are ready to be patient, even if it is slow.
@@ -37,5 +36,5 @@ pub fn get_hierarchy<S: Stream>(connection: &mut BufConnection<S>, server: &Arc<
         }
     }
 
-    connection.write_message_and_status(&buf, actions::DONE)
+    connection.write_message_and_status(&buf, actions::DONE).await
 }

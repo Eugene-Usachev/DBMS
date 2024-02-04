@@ -1,6 +1,5 @@
 use std::collections::BTreeMap;
 use std::hash::{BuildHasher, Hash, Hasher};
-use std::sync::RwLock;
 use ahash::RandomState;
 
 use crate::index::Index;
@@ -9,7 +8,7 @@ use crate::index::index::SIZE;
 pub struct TreeInMemoryIndex<K, V>
     where K: Eq + Ord + Hash, V: Eq + Clone
 {
-    data: Box<[RwLock<BTreeMap<K, V>>]>,
+    data: Box<[BTreeMap<K, V>]>,
     lob: usize,
     state: RandomState
 }
@@ -23,7 +22,7 @@ impl<K, V> TreeInMemoryIndex<K, V>
         let lob = (1 << mask) - 1;
         let mut vec = Vec::with_capacity(SIZE);
         for _ in 0..SIZE {
-            vec.push(RwLock::new(BTreeMap::new()));
+            vec.push(BTreeMap::new());
         }
         Self {
             data: vec.into_boxed_slice(),
@@ -43,8 +42,8 @@ impl<K, V> Index<K, V> for TreeInMemoryIndex<K, V>
     where K: Eq + Ord + Hash, V: Eq + Clone
 {
     #[inline(always)]
-    fn insert(&self, key: K, value: V) -> bool {
-        let mut shard = self.data[self.get_number(&key)].write().unwrap();
+    fn insert(&mut self, key: K, value: V) -> bool {
+        let shard = &mut self.data[self.get_number(&key)];
         if shard.contains_key(&key) {
             return false;
         }
@@ -53,18 +52,18 @@ impl<K, V> Index<K, V> for TreeInMemoryIndex<K, V>
     }
 
     #[inline(always)]
-    fn set(&self, key: K, value: V) -> Option<V> {
-        self.data[self.get_number(&key)].write().unwrap().insert(key, value)
+    fn set(&mut self, key: K, value: V) -> Option<V> {
+        self.data[self.get_number(&key)].insert(key, value)
     }
 
     #[inline(always)]
     fn get(&self, key: &K) -> Option<V> {
-        self.data[self.get_number(key)].read().unwrap().get(key).cloned()
+        self.data[self.get_number(key)].get(key).cloned()
     }
 
     #[inline(always)]
-    fn get_and_modify<F>(&self, key: &K, mut f: F) -> Option<V> where F: FnMut(&mut V) {
-        let mut shard = self.data[self.get_number(key)].write().unwrap();
+    fn get_and_modify<F>(&mut self, key: &K, mut f: F) -> Option<V> where F: FnMut(&mut V) {
+        let shard = &mut self.data[self.get_number(key)];
         let Some(res) = shard.get_mut(key) else {
             return None;
         };
@@ -73,24 +72,24 @@ impl<K, V> Index<K, V> for TreeInMemoryIndex<K, V>
     }
 
     #[inline(always)]
-    fn remove(&self, key: &K) -> Option<V> {
-        self.data[self.get_number(key)].write().unwrap().remove(key)
+    fn remove(&mut self, key: &K) -> Option<V> {
+        self.data[self.get_number(key)].remove(key)
     }
 
     #[inline(always)]
     fn contains(&self, key: &K) -> bool {
-        self.data[self.get_number(key)].read().unwrap().contains_key(key)
+        self.data[self.get_number(key)].contains_key(key)
     }
 
     #[inline(always)]
-    fn resize(&self, _new_size: usize) {
+    fn resize(&mut self, _new_size: usize) {
         // All is ok. Nothing to do
     }
 
     #[inline(always)]
-    fn clear(&self) {
+    fn clear(&mut self) {
         for i in 0..self.data.len() {
-            self.data[i].write().unwrap().clear();
+            self.data[i].clear();
         }
     }
 
@@ -98,7 +97,7 @@ impl<K, V> Index<K, V> for TreeInMemoryIndex<K, V>
     fn count(&self) -> usize {
         let mut l = 0;
         for i in 0..self.data.len() {
-            l += self.data[i].read().unwrap().len();
+            l += self.data[i].len();
         }
         return l;
     }
@@ -108,37 +107,29 @@ impl<K, V> Index<K, V> for TreeInMemoryIndex<K, V>
         where F: Fn(&K, &V)
     {
         for i in 0..self.data.len() {
-            for (k, v) in self.data[i].read().unwrap().iter() {
+            for (k, v) in self.data[i].iter() {
                 f(k, v);
             }
         }
     }
 
     #[inline(always)]
-    fn for_each_mut<F>(&self, mut f: F)
+    fn for_each_mut<F>(&mut self, mut f: F)
         where F: FnMut(&K, &mut V)
     {
         for i in 0..self.data.len() {
-            for (k, v) in self.data[i].write().unwrap().iter_mut() {
+            for (k, v) in self.data[i].iter_mut() {
                 f(k, v);
             }
         }
     }
 
     #[inline(always)]
-    fn retain<F>(&self, f: F)
+    fn retain<F>(&mut self, f: F)
         where F: FnMut(&K, &mut V) -> bool + Clone
     {
         for i in 0..self.data.len() {
-            self.data[i].write().unwrap().retain(f.clone());
+            self.data[i].retain(f.clone());
         }
     }
 }
-
-unsafe impl<K, V> Send for TreeInMemoryIndex<K, V>
-    where K: Eq + Ord + Hash, V: Eq + Clone
-{}
-
-unsafe impl<K, V> Sync for TreeInMemoryIndex<K, V>
-    where K: Eq + Ord + Hash, V: Eq + Clone
-{}

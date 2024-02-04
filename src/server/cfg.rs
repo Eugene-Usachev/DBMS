@@ -2,13 +2,22 @@ use std::{env};
 
 pub struct Config {
     pub tcp_addr: String,
-    pub unix_addr: String,
+    //pub unix_addr: String,
     pub password: String,
     pub node_addr: String,
 }
 
 impl Config {
     pub(crate) fn new() -> Self {
+        match env::var("DUMP_INTERVAL") {
+            Ok(value) => {
+                println!("The dump interval was set to: {} minutes using the environment variable \"DUMP_INTERVAL\"", value);
+            },
+            Err(_) => {
+                println!("The dump interval was not set using the environment variable \"DUMP_INTERVAL\", setting it to 24 hours");
+            }
+        };
+
         let tcp_addr = match env::var("TCP_ADDR") {
             Ok(value) => {
                 println!("The address was set to: {} using the environment variable \"TCP_ADDR\"", value);
@@ -20,16 +29,16 @@ impl Config {
             }
         };
 
-        let unix_addr = match env::var("UNIX_ADDR") {
-            Ok(value) => {
-                println!("The address was set to: {} using the environment variable \"UNIX_ADDR\"", value);
-                value.parse().unwrap_or("localhost:10002".to_string())
-            },
-            Err(_) => {
-                println!("The address was not set using the environment variable \"UNIX_PORT\", setting it to \"localhost:10002\"");
-                "localhost:10002".to_string()
-            }
-        };
+        // let unix_addr = match env::var("UNIX_ADDR") {
+        //     Ok(value) => {
+        //         println!("The address was set to: {} using the environment variable \"UNIX_ADDR\"", value);
+        //         value.parse().unwrap_or("localhost:10002".to_string())
+        //     },
+        //     Err(_) => {
+        //         println!("The address was not set using the environment variable \"UNIX_PORT\", setting it to \"localhost:10002\"");
+        //         "localhost:10002".to_string()
+        //     }
+        // };
 
         let password = match env::var("PASSWORD") {
             Ok(value) => {
@@ -53,6 +62,6 @@ impl Config {
             }
         };
 
-        Self { tcp_addr, password, unix_addr, node_addr }
+        Self { tcp_addr, password, node_addr }
     }
 }

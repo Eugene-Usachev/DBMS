@@ -1,5 +1,4 @@
 use std::mem;
-use std::sync::RwLock;
 use ahash::RandomState;
 use crate::index::{Index};
 use crate::index::index::{SIZE, SIZE_U64};
@@ -9,7 +8,7 @@ use crate::index::index::{SIZE, SIZE_U64};
 pub struct SerialInMemoryIndex<V>
     where V: Eq + Clone
 {
-    pub data: Box<[RwLock<Vec<V>>]>,
+    pub data: Box<[Vec<V>]>,
     pub mask: u64,
     pub state: RandomState
 }
@@ -23,7 +22,7 @@ impl<V> SerialInMemoryIndex<V>
         let mask = (1 << lob) - 1;
         let mut vec = Vec::with_capacity(SIZE);
         for _ in 0..SIZE {
-            vec.push(RwLock::new(Vec::with_capacity(4096)));
+            vec.push(Vec::with_capacity(4096));
         }
         Self {
             data: vec.into_boxed_slice(),
@@ -47,9 +46,9 @@ impl<V> Index<u64, V, > for SerialInMemoryIndex<V>
     where V: Eq + Clone + std::fmt::Debug
 {
     #[inline(always)]
-    fn insert(&self, key: u64, value: V) -> bool {
+    fn insert(&mut self, key: u64, value: V) -> bool {
         let key = set_last_two_bytes_to_zero(key);
-        let mut shard = self.data[self.get_number(key)].write().unwrap();
+        let shard = &mut self.data[self.get_number(key)];
         if shard.contains(&value) {
             return false;
         }
@@ -58,10 +57,10 @@ impl<V> Index<u64, V, > for SerialInMemoryIndex<V>
     }
 
     #[inline(always)]
-    fn set(&self, key: u64, mut value: V) -> Option<V> {
+    fn set(&mut self, key: u64, mut value: V) -> Option<V> {
         let key = set_last_two_bytes_to_zero(key);
         let key_usize = (key / SIZE_U64) as usize;
-        let mut shard = self.data[self.get_number(key)].write().unwrap();
+        let shard = &mut self.data[self.get_number(key)];
         let res = shard.get_mut(key_usize);
         if res.is_some() {
             mem::swap(res.unwrap(), &mut value);
@@ -73,14 +72,14 @@ impl<V> Index<u64, V, > for SerialInMemoryIndex<V>
     fn get(&self, key: &u64) -> Option<V> {
         let key = set_last_two_bytes_to_zero(*key);
         let key_usize = (key / SIZE_U64) as usize;
-        self.data[self.get_number(key)].read().unwrap().get(key_usize).cloned()
+        self.data[self.get_number(key)].get(key_usize).cloned()
     }
 
     #[inline(always)]
-    fn get_and_modify<F>(&self, key: &u64, mut f: F) -> Option<V> where F: FnMut(&mut V) {
+    fn get_and_modify<F>(&mut self, key: &u64, mut f: F) -> Option<V> where F: FnMut(&mut V) {
         let key = set_last_two_bytes_to_zero(*key);
         let key_usize = (key / SIZE_U64) as usize;
-        let mut shard = self.data[self.get_number(key)].write().unwrap();
+        let shard = &mut self.data[self.get_number(key)];
         let Some(res) = shard.get_mut(key_usize) else {
             return None;
         };
@@ -89,10 +88,10 @@ impl<V> Index<u64, V, > for SerialInMemoryIndex<V>
     }
 
     #[inline(always)]
-    fn remove(&self, key: &u64) -> Option<V> {
+    fn remove(&mut self, key: &u64) -> Option<V> {
         let key = set_last_two_bytes_to_zero(*key);
         let key_usize = (key / SIZE_U64) as usize;
-        let mut v = self.data[self.get_number(key)].write().unwrap();
+        let v = &mut self.data[self.get_number(key)];
         if v.len() > key_usize {
             return Some(v.remove(key_usize));
         }
@@ -102,28 +101,28 @@ impl<V> Index<u64, V, > for SerialInMemoryIndex<V>
     fn contains(&self, key: &u64) -> bool {
         let key = set_last_two_bytes_to_zero(*key);
         let key_usize = (key / SIZE_U64) as usize;
-        self.data[self.get_number(key)].read().unwrap().get(key_usize).is_some()
+        self.data[self.get_number(key)].get(key_usize).is_some()
     }
 
     #[inline(always)]
-    fn resize(&self, new_size: usize) {
+    fn resize(&mut self, new_size: usize) {
         let size_for_shard = new_size / SIZE;
         for i in 0..self.data.len() {
-            self.data[i].write().unwrap().reserve(size_for_shard);
+            self.data[i].reserve(size_for_shard);
         }
     }
 
     #[inline(always)]
-    fn clear(&self) {
+    fn clear(&mut self) {
         for i in 0..self.data.len() {
-            self.data[i].write().unwrap().clear();
+            self.data[i].clear();
         }
     }
 
     fn count(&self) -> usize {
         let mut l = 0;
         for i in 0..self.data.len() {
-            l += self.data[i].read().unwrap().len();
+            l += self.data[i].len();
         }
         return l;
     }
@@ -133,18 +132,18 @@ impl<V> Index<u64, V, > for SerialInMemoryIndex<V>
         where F: Fn(&u64, &V)
     {
         for i in 0..self.data.len() {
-            for (k, v) in self.data[i].read().unwrap().iter().enumerate() {
+            for (k, v) in self.data[i].iter().enumerate() {
                 f(&(k as u64), v);
             }
         }
     }
 
     #[inline(always)]
-    fn for_each_mut<F>(&self, mut f: F)
+    fn for_each_mut<F>(&mut self, mut f: F)
         where F: FnMut(&u64, &mut V)
     {
         for i in 0..self.data.len() {
-            for (k, v) in self.data[i].write().unwrap().iter_mut().enumerate() {
+            for (k, v) in self.data[i].iter_mut().enumerate() {
                 // TODO key
                 f(&(k as u64), v);
             }
@@ -152,12 +151,12 @@ impl<V> Index<u64, V, > for SerialInMemoryIndex<V>
     }
 
     #[inline(always)]
-    fn retain<F>(&self, mut f: F)
+    fn retain<F>(&mut self, mut f: F)
         where F: FnMut(&u64, &mut V) -> bool + Clone
     {
         for i in 0..self.data.len() {
             let c = &mut 0u64;
-            self.data[i].write().unwrap().retain_mut(|value| {
+            self.data[i].retain_mut(|value| {
                 let count = *c;
                 let is_keep = f(&count, value);
                 *c = count + 1;
@@ -166,11 +165,3 @@ impl<V> Index<u64, V, > for SerialInMemoryIndex<V>
         }
     }
 }
-
-unsafe impl<V> Send for SerialInMemoryIndex<V>
-    where V: Eq + Clone
-{}
-
-unsafe impl<V> Sync for SerialInMemoryIndex<V>
-    where V: Eq + Clone
-{}

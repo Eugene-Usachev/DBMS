@@ -1,3 +1,6 @@
+#![allow(mutable_transmutes)]
+
+#[test]
 use std::sync::Arc;
 mod index;
 
@@ -6,8 +9,11 @@ mod constants;
 mod utils;
 mod storage;
 
+#[cfg(test)]
 use storage::*;
+#[cfg(test)]
 use crate::tests::{crud, crud_bench, persistence};
+use crate::shard::Manager;
 
 mod table;
 mod console;
@@ -17,16 +23,20 @@ mod server;
 mod tests;
 mod scheme;
 mod connection;
-mod stream;
 mod node;
+mod shard;
+mod error;
 
 #[cfg(not(test))]
-#[tokio::main]
-async fn main() {
-    let storage = Arc::new(Storage::new());
-    Storage::init(storage.clone());
+fn main() {
+    let manager = Manager::new();
 
-    server::server::Server::new(storage).run();
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .thread_name("Server")
+        .build().unwrap().block_on(async move {
+            server::server::Server::run(manager.await).await;
+        });
 }
 
 #[test]

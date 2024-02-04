@@ -71,7 +71,7 @@ impl<'a> BinKey {
 
     #[inline(always)]
     pub fn len(&self) -> usize {
-        let mut l;
+        let l;
         unsafe {
             // first byte is length
             l = (*self.ptr) as usize;

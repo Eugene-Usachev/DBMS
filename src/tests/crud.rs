@@ -1,8 +1,14 @@
+#[cfg(test)]
 use std::sync::Arc;
+#[cfg(test)]
 use crate::bin_types::{BinKey, BinValue};
+#[cfg(test)]
 use crate::index::HashInMemoryIndex;
+#[cfg(test)]
 use crate::scheme::scheme::empty_scheme;
+#[cfg(test)]
 use crate::storage::Storage;
+#[cfg(test)]
 use crate::writers::LogWriter;
 
 #[cfg(test)]
@@ -10,7 +16,7 @@ pub fn crud(storage: Arc<Storage>) {
     let number = Storage::create_in_memory_table(storage.clone(), "crud".to_string(), HashInMemoryIndex::new(), false, empty_scheme(), &[]);
     let mut keys = Vec::with_capacity(10000);
     let mut values = Vec::with_capacity(10000);
-    let mut log_writer = LogWriter::new(storage.log_file.clone());
+    let mut log_writer = LogWriter::new(storage.log_writer.clone());
     for i in 0..10000 {
         keys.push(BinKey::new(format!("key{i}").as_bytes()));
         values.push(BinValue::new(format!("value{i}").as_bytes()));

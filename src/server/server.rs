@@ -1,35 +1,28 @@
-use std::fs::OpenOptions;
-use std::io::{Seek, SeekFrom, Write};
-use std::net::{TcpListener, TcpStream};
-use std::ops::Deref;
-#[cfg(not(target_os = "windows"))]
-use std::os::unix::net::UnixListener;
+use std::error::Error;
+use std::io::{SeekFrom, };
 use std::path::PathBuf;
 use std::sync::{Arc};
-use std::thread;
-use crate::connection::{BufConnection, Status};
-
+use tokio::fs::OpenOptions;
+use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
+use tokio::net::{TcpListener, TcpStream};
+use crate::connection::{BufConnection, Status, SyncBufConnection};
 use crate::constants::actions;
-use crate::constants::actions::DONE;
+
+use crate::constants::actions::{BAD_REQUEST, DONE};
 use crate::constants::paths::PERSISTENCE_DIR;
+use crate::error::CustomError;
 use crate::node::Node;
 use crate::server::cfg::Config;
-use crate::storage::storage::Storage;
-
-use crate::server::reactions::status::{get_hierarchy, get_shard_metadata, ping};
-use crate::server::reactions::table::{create_table_cache, create_table_in_memory, create_table_on_disk, get_tables_names};
-use crate::server::reactions::work_with_tables::{delete, get, get_field, get_fields, insert, set};
-use crate::stream::Stream;
+use crate::shard::{Manager, reactions};
 use crate::utils::fastbytes::uint;
-use crate::writers::LogWriter;
 
 pub struct Server {
-    storage: Arc<Storage>,
+    shard_manager: Manager,
     is_running: bool,
 
     password: String,
     tcp_addr: String,
-    unix_addr: String,
+    //unix_addr: String,
     node_addr: String,
 
     pub hierarchy: Vec<Vec<String>>,
@@ -50,7 +43,7 @@ fn read_more(chunk: &mut [u8], start_offset: usize, bytes_read: usize, offset_la
 }
 
 impl Server {
-    pub fn new(storage: Arc<Storage>) -> Self {
+    pub async fn new(manager: Manager) -> Server {
         let config = Config::new();
 
         let hierarchy_file_path: PathBuf = ["..", PERSISTENCE_DIR, "hierarchy.bin"].iter().collect();
@@ -58,9 +51,9 @@ impl Server {
         let shard_metadata_file_path: PathBuf = ["..", PERSISTENCE_DIR, "shard metadata.bin"].iter().collect();
 
         let mut server = Self {
-            storage: storage.clone(),
+            shard_manager: manager,
             tcp_addr: config.tcp_addr,
-            unix_addr: config.unix_addr,
+            //unix_addr: config.unix_addr,
             node_addr: config.node_addr,
             password: config.password,
             is_running: false,
@@ -70,37 +63,37 @@ impl Server {
             node: Node::new()
         };
 
-        server.rise_hierarchy_and_lookup_node();
+        server.rise_hierarchy_and_lookup_node().await;
 
-        server.set_up_shard_metadata_file();
+        server.set_up_shard_metadata_file().await;
 
-        server.connect_to_node();
+        server.connect_to_node().await;
 
         server
     }
 
-    fn rise_hierarchy_and_lookup_node(&mut self) {
-        let mut file = OpenOptions::new()
+    async fn rise_hierarchy_and_lookup_node(&mut self) {
+        let file = OpenOptions::new()
             .write(true)
             .create(true)
             .read(true)
-            .open(&self.hierarchy_file_path);
+            .open(&self.hierarchy_file_path).await;
         let mut hierarchy;
         if file.is_err() {
             panic!("Can't open hierarchy file {}", self.hierarchy_file_path.display());
         } else {
             let mut file = file.unwrap();
-            if file.metadata().unwrap().len() < 3 {
+            if file.metadata().await.unwrap().len() < 3 {
                 hierarchy = vec![vec![self.tcp_addr.clone()]];
                 let l = self.tcp_addr.len();
-                file.seek(SeekFrom::Start(0)).expect("Can't seek hierarchy file");
+                file.seek(SeekFrom::Start(0)).await.expect("Can't seek hierarchy file");
                 // Format is: 1 byte for count of machines in the node and next 2 bytes for a name length and name.
-                Stream::write_all(&mut file, &[1, l as u8, (l >> 8) as u8]).expect("Can't write to hierarchy file");
-                Stream::write_all(&mut file, hierarchy[0][0].as_bytes()).expect("Can't write to hierarchy file");
+                file.write_all(&[1, l as u8, (l >> 8) as u8]).await.expect("Can't write to hierarchy file");
+                file.write_all(hierarchy[0][0].as_bytes()).await.expect("Can't write to hierarchy file");
             } else {
                 let mut l;
                 let mut read;
-                let mut offset = 0;
+                let mut offset;
                 let mut number_of_machines = 0;
                 let mut buf = vec![0u8; 4096];
                 let mut offset_last_record = 0;
@@ -109,7 +102,7 @@ impl Server {
 
                 hierarchy = Vec::with_capacity(1);
                 'read: loop {
-                    read = file.read(&mut buf).expect("Can't read from hierarchy file");
+                    read = file.read(&mut buf).await.expect("Can't read from hierarchy file");
                     if read == 0 {
                         break;
                     }
@@ -172,29 +165,29 @@ impl Server {
         self.hierarchy = hierarchy
     }
     
-    fn set_up_shard_metadata_file(&mut self) {
-        /// We split all data in shards. We have 65,536 shards, and we distribute shards into different nodes.
-        /// We store shard metadata as [`number of machine addresses`, [`address length`, `machine address`]; 65,536].
-        /// We always think that the leftmost alive machine is the master.
+    async fn set_up_shard_metadata_file(&mut self) {
+        // We split all data in shards. We have 65,536 shards, and we distribute shards into different nodes.
+        // We store shard metadata as [`number of machine addresses`, [`address length`, `machine address`]; 65,536].
+        // We always think that the leftmost alive machine is the master.
 
-        let mut file = OpenOptions::new()
+        let file = OpenOptions::new()
             .write(true)
             .create(true)
             .read(true)
-            .open(&self.shard_metadata_file_path);
+            .open(&self.shard_metadata_file_path).await;
         if file.is_err() {
             panic!("Can't open shard metadata file {}", self.shard_metadata_file_path.display());
         }
         
         let mut file = file.unwrap();
-        if file.metadata().unwrap().len() == 0 {
+        if file.metadata().await.unwrap().len() == 0 {
             if self.hierarchy.len() == 1 {
                 let mut buf = Vec::with_capacity(65536 * 2);
                 for _i in 0..65_536 {
                     buf.extend_from_slice(&uint::u16tob(0));
                 }
 
-                Stream::write_all(&mut file, &buf).expect("Can't write to shard metadata file");
+                file.write_all(&buf).await.expect("Can't write to shard metadata file");
             } else {
                 // TODO: set up with cluster
             }
@@ -203,54 +196,55 @@ impl Server {
         }
     }
 
-    fn connect_to_node(&mut self) {
+    async fn connect_to_node(&mut self) {
 
     }
 
-    fn connect_to_cluster(&mut self) {
+    async fn connect_to_cluster(&mut self) {
 
     }
 
-    pub fn run(mut self) {
-        if self.is_running {
+    pub async fn run(manager: Manager) {
+        let mut server = Self::new(manager).await;
+        if server.is_running {
             return;
         }
-        self.is_running = true;
+        server.is_running = true;
 
-        self.connect_to_cluster();
+        server.connect_to_cluster().await;
 
-        let server = Arc::new(self);
+        let server = Arc::new(server);
 
-        #[cfg(not(target_os = "windows"))] {
-            let storage = server.storage.clone();
-            let unix_port = server.unix_addr.clone();
-            let server = server.clone();
-            thread::spawn(move || {
-                let listener_ = UnixListener::bind(format!("{}", unix_port));
-                let listener = match listener_ {
-                    Ok(listener) => listener,
-                    Err(e) => {
-                        panic!("Can't bind to address: {}, the error is: {:?}", unix_port, e);
-                    }
-                };
-                println!("Server unix listening on address {}", unix_port);
-                for stream in listener.incoming() {
-                    let storage = storage.clone();
-                    let server = server.clone();
-                    thread::spawn(move || {
-                        match stream {
-                            Ok(stream) => {
-                                Self::handle_client(server, storage, BufConnection::new(stream));
-                            }
-                            Err(e) => {
-                                println!("Error: {}", e);
-                            }
-                        }
-                    });
-                }
-            });
-        }
-        let listener_ = TcpListener::bind(format!("{}", server.tcp_addr.clone()));
+        // #[cfg(not(target_os = "windows"))] {
+        //     let storage = server.storage.clone();
+        //     let unix_port = server.unix_addr.clone();
+        //     let server = server.clone();
+        //     thread::spawn(move || {
+        //         let listener_ = UnixListener::bind(format!("{}", unix_port));
+        //         let listener = match listener_ {
+        //             Ok(listener) => listener,
+        //             Err(e) => {
+        //                 panic!("Can't bind to address: {}, the error is: {:?}", unix_port, e);
+        //             }
+        //         };
+        //         println!("Server unix listening on address {}", unix_port);
+        //         for stream in listener.incoming() {
+        //             let storage = storage.clone();
+        //             let server = server.clone();
+        //             thread::spawn(move || {
+        //                 match stream {
+        //                     Ok(stream) => {
+        //                         Self::handle_client(server, storage, BufConnection::new(stream));
+        //                     }
+        //                     Err(e) => {
+        //                         println!("Error: {}", e);
+        //                     }
+        //                 }
+        //             });
+        //         }
+        //     });
+        // }
+        let listener_ = TcpListener::bind(format!("{}", server.tcp_addr.clone())).await;
         let listener = match listener_ {
             Ok(listener) => listener,
             Err(e) => {
@@ -258,93 +252,106 @@ impl Server {
             }
         };
         println!("Server tcp listening on address {}", server.tcp_addr.clone());
-        for stream in listener.incoming() {
-            let server = server.clone();
-            let storage= server.storage.clone();
-            thread::spawn(move || {
-                match stream {
-                    Ok(stream) => {
-                        Self::handle_client(server, storage, BufConnection::new(stream));
-                    }
-                    Err(e) => {
-                        println!("Error: {}", e);
-                    }
-                }
+        loop {
+            let res = listener.accept().await;
+            if res.is_err() {
+                println!("Can't accept TCP connection. Shutting down...");
+                return;
+            }
+            let (stream, _socket_addr) = res.expect("Can't get TCP connection");
+            let server_clone = Arc::clone(&server);
+
+            tokio::spawn(async move {
+                Self::handle_client(server_clone, stream).await;
             });
         }
     }
 
     #[inline(always)]
-    fn handle_client<S: Stream>(server: Arc<Server>, storage: Arc<Storage>, mut connection: BufConnection<S>) {
-        let mut status;
+    async fn handle_client(server: Arc<Server>, stream: TcpStream) {
+        // TODO: we always allocate 128 KB for BufConnection. But we will be Proxy.
+        let conn = BufConnection::new(stream);
+        let mut connection = SyncBufConnection::new(conn);
         if server.password.len() > 0 {
             let mut buf = vec![0;server.password.len()];
-            unsafe {
-                let reader = (&mut connection.reader);
-                reader.reader.read_exact(&mut buf).expect("Failed to read password");
+            let status = connection.get().read_exact(&mut buf).await;
+            if status != Status::Ok {
+                println!("Can't read password. Disconnected.");
+                connection.get().close().expect("Failed to close connection");
+                return;
             }
             if buf != server.password.as_bytes() {
                 println!("Wrong password. Disconnected.");
-                connection.close().expect("Failed to close connection");
+                connection.get().close().expect("Failed to close connection");
                 return;
             }
-            connection.writer.write_all(&[DONE]).expect("Failed to write DONE");
-            connection.writer.flush().expect("Failed to flush connection");
+            connection.writer().write_all(&[DONE]).await.expect("Failed to write DONE");
+            connection.writer().flush().await.expect("Failed to flush connection");
         }
         println!("Connection accepted");
 
-        let mut log_writer = LogWriter::new(storage.log_file.clone());
-
-        let mut message;
+        let mut status;
+        let mut shard_number;
+        let mut is_ok;
         loop {
-            status = connection.read_request();
+            (status, shard_number) = connection.read_request().await;
             if status != Status::Ok {
-                connection.close().expect("Failed to close connection");
-                return;
+                println!("Can't read a request.");
+                break;
             }
 
-            loop {
-                (message, status) = connection.read_message();
-                if status != Status::Ok {
-                    if status == Status::All {
-                        log_writer.flush();
-                        connection.flush().expect("Failed to flush connection");
-                        break;
-                    }
-                    connection.close().expect("Failed to close connection");
-                    return;
+            if shard_number < u32::MAX as usize {
+                // request for DB
+                let (requests, response) = &server.shard_manager.connectors[shard_number];
+                requests.send(connection).expect("Internal error. Can't send connection to a shard");
+                (connection, is_ok) = response.recv().expect("Failed to recv");
+                if !is_ok {
+                    break;
                 }
-
-                status = Self::handle_message(&mut connection, &server, &storage, message, &mut log_writer);
-                if status != Status::Ok {
-                    connection.close().expect("Failed to close connection");
-                    return;
-                }
+            } else {
+                Self::handle_server_request(server.clone(), connection.get()).await.expect("Failed to handle server request");
             }
         }
     }
 
-    #[inline(always)]
-    fn handle_message<S: Stream>(connection: &mut BufConnection<S>, server: &Arc<Server>, storage: &Arc<Storage>, message: &[u8], log_writer: &mut LogWriter) -> Status {
+    async fn handle_server_request(server: Arc<Server>, connection: &mut BufConnection) -> Result<(), Box<dyn Error>> {
+        let mut message;
+        let mut status;
+        loop {
+            (message, status) = connection.read_message().await;
+            if status != Status::Ok {
+                if status == Status::All {
+                    connection.flush().await.expect("Failed to flush connection");
+                    break;
+                }
+                connection.close().expect("Failed to close connection");
+                return Err(Box::new(CustomError::new("Bad request.")));
+            }
+
+            // TODO: log
+            status = Self::handle_server_message(server.clone(), connection, message).await;
+            if status != Status::Ok {
+                connection.close().expect("Failed to close connection");
+                return Err(Box::new(CustomError::new("Bad request.")));
+            }
+        }
+
+        return Ok(());
+    }
+
+    async fn handle_server_message(server: Arc<Server>, connection: &mut BufConnection, message: &[u8]) -> Status {
         return match message[0] {
-            actions::PING => ping(connection),
-            actions::GET_SHARD_METADATA => get_shard_metadata(connection, server),
-            actions::GET_HIERARCHY => get_hierarchy(connection, server),
+            actions::PING => reactions::status::ping(connection).await,
+            actions::GET_SHARD_METADATA => reactions::status::get_shard_metadata(connection, &server).await,
+            actions::GET_HIERARCHY => reactions::status::get_hierarchy(connection, &server).await,
 
-            actions::CREATE_TABLE_IN_MEMORY => create_table_in_memory(connection, storage, message, log_writer),
-            actions::CREATE_TABLE_CACHE => create_table_cache(connection, storage, message, log_writer),
-            actions::CREATE_TABLE_ON_DISK => create_table_on_disk(connection, storage, message, log_writer),
-            actions::GET_TABLES_NAMES => get_tables_names(connection, storage),
-
-            actions::GET => get(connection, storage, message),
-            actions::GET_FIELD => get_field(connection, storage, message),
-            actions::GET_FIELDS => get_fields(connection, storage, message),
-
-            actions::INSERT => insert(connection, storage, message, log_writer),
-            actions::SET => set(connection, storage, message, log_writer),
-            actions::DELETE => delete(connection, storage, message, log_writer),
+            actions::CREATE_TABLE_IN_MEMORY => reactions::table::create_table_in_memory(connection, &server.shard_manager, message).await,
+            actions::CREATE_TABLE_CACHE => reactions::table::create_table_cache(connection, &server.shard_manager, message).await,
+            actions::CREATE_TABLE_ON_DISK => reactions::table::create_table_on_disk(connection, &server.shard_manager, message).await,
+            actions::GET_TABLES_NAMES => reactions::table::get_tables_names(connection, &server.shard_manager).await,
             _ => {
-                connection.write_message(&[actions::BAD_REQUEST])
+                println!("Unknown action: {}.", message[0]);
+                connection.write_message(&[BAD_REQUEST]).await
             }
         }
     }

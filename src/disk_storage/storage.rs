@@ -32,10 +32,12 @@ pub struct DiskStorage<I: Index<BinKey, (u64, u64)>> {
     rs: RandomState
 }
 
+// TODO kick lockers
+
 // CRUD
 impl<I: Index<BinKey, (u64, u64)>> DiskStorage<I> {
     #[inline(always)]
-    pub(crate) fn insert(&self, key: BinKey, value: BinValue) -> bool {
+    pub(crate) fn insert(&mut self, key: BinKey, value: BinValue) -> bool {
         if self.infos.contains(&key) {
             return false;
         }
@@ -74,7 +76,7 @@ impl<I: Index<BinKey, (u64, u64)>> DiskStorage<I> {
     }
 
     #[inline(always)]
-    pub(crate) fn delete(&self, key: &BinKey) {
+    pub(crate) fn delete(&mut self, key: &BinKey) {
         let file = self.get_need_to_delete(key);
         if self.infos.remove(key).is_none() {
             return;
@@ -84,7 +86,7 @@ impl<I: Index<BinKey, (u64, u64)>> DiskStorage<I> {
     }
 
     #[inline(always)]
-    pub(crate) fn set(&self, key: BinKey, value: BinValue) -> Option<BinValue> {
+    pub(crate) fn set(&mut self, key: BinKey, value: BinValue) -> Option<BinValue> {
         let mut hasher = RandomState::build_hasher(&self.rs);
         key.hash(&mut hasher);
         let number = hasher.finish() as usize & self.lob;
@@ -224,12 +226,12 @@ impl<I: Index<BinKey, (u64, u64)>> DiskStorage<I> {
             let mut file = lock.inner.get_ref();
             file_len = file.metadata().unwrap().len();
             'read_loop: loop {
-                if (read == file_len) {
+                if read == file_len {
                     break;
                 }
 
                 let mut bytes_read = file.read(&mut chunk[offset_last_record..]).expect("Failed to read");
-                if (bytes_read == 0) {
+                if bytes_read == 0 {
                     break;
                 }
 
@@ -238,7 +240,7 @@ impl<I: Index<BinKey, (u64, u64)>> DiskStorage<I> {
                 read += bytes_read as u64;
 
                 loop {
-                    if (offset + 1 > bytes_read) {
+                    if offset + 1 > bytes_read {
                         let slice_to_copy = &mut Vec::with_capacity(0);
                         chunk[start_offset..bytes_read].clone_into(slice_to_copy);
                         offset_last_record = bytes_read - start_offset;
@@ -247,10 +249,10 @@ impl<I: Index<BinKey, (u64, u64)>> DiskStorage<I> {
                     }
                     start_offset = offset;
                     let mut kl = chunk[offset + 1] as u32;
-                    if (kl < 255) {
+                    if kl < 255 {
                         offset += 1;
                     } else {
-                        if (offset + 3 > bytes_read) {
+                        if offset + 3 > bytes_read {
                             let slice_to_copy = &mut Vec::with_capacity(0);
                             chunk[start_offset..bytes_read].clone_into(slice_to_copy);
                             offset_last_record = bytes_read - start_offset;
@@ -261,7 +263,7 @@ impl<I: Index<BinKey, (u64, u64)>> DiskStorage<I> {
                         offset += 3;
                     }
 
-                    if (offset + kl as usize + 3 /*3 here is bytes for vl*/ > bytes_read) {
+                    if offset + kl as usize + 3 /*3 here is bytes for vl*/ > bytes_read {
                         let slice_to_copy = &mut Vec::with_capacity(0);
                         chunk[start_offset..bytes_read].clone_into(slice_to_copy);
                         offset_last_record = bytes_read - start_offset;
@@ -274,7 +276,7 @@ impl<I: Index<BinKey, (u64, u64)>> DiskStorage<I> {
                     let vl = (chunk[offset + 2] as u32) << 16 | (chunk[offset + 1] as u32) << 8 | (chunk[offset] as u32);
                     offset += 3;
 
-                    if (offset + vl as usize > bytes_read) {
+                    if offset + vl as usize > bytes_read {
                         let slice_to_copy = &mut Vec::with_capacity(0);
                         chunk[start_offset..bytes_read].clone_into(slice_to_copy);
                         offset_last_record = bytes_read - start_offset;
@@ -292,9 +294,9 @@ impl<I: Index<BinKey, (u64, u64)>> DiskStorage<I> {
                     unsafe {
                         let atomic = self.atomic_indexes.get_unchecked(number);
                         let res = tmp_set.get_mut(&chunk[key_offset..key_offset+kl as usize]);
-                        if (res.is_some()) {
+                        if res.is_some() {
                             let number = res.unwrap();
-                            if (*number != 0) {
+                            if *number != 0 {
                                 *number -= 1;
                                 atomic.fetch_add((6 + vl + kl) as u64, std::sync::atomic::Ordering::SeqCst);
                                 continue;
@@ -388,7 +390,7 @@ impl<I: Index<BinKey, (u64, u64)>> DiskStorage<I> {
         let info;
         {
             let index_ = self.infos.get(key);
-            if (index_.is_none()) {
+            if index_.is_none() {
                 return None;
             }
             info = unsafe { index_.unwrap_unchecked() };
