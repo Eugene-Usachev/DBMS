@@ -2,6 +2,7 @@ use std::error::Error;
 use std::io::{SeekFrom, };
 use std::path::PathBuf;
 use std::sync::{Arc};
+use std::time::{Duration, Instant};
 use tokio::fs::OpenOptions;
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -277,12 +278,12 @@ impl Server {
             let status = connection.get().read_exact(&mut buf).await;
             if status != Status::Ok {
                 println!("Can't read password. Disconnected.");
-                connection.get().close().expect("Failed to close connection");
+                connection.get().close().await.expect("Failed to close connection");
                 return;
             }
             if buf != server.password.as_bytes() {
                 println!("Wrong password. Disconnected.");
-                connection.get().close().expect("Failed to close connection");
+                connection.get().close().await.expect("Failed to close connection");
                 return;
             }
             connection.writer().write_all(&[DONE]).await.expect("Failed to write DONE");
@@ -303,8 +304,8 @@ impl Server {
             if shard_number < u32::MAX as usize {
                 // request for DB
                 let (requests, response) = &server.shard_manager.connectors[shard_number];
-                requests.send(connection).expect("Internal error. Can't send connection to a shard");
-                (connection, is_ok) = response.recv().expect("Failed to recv");
+                requests.lock().await.send(connection).await.expect("Internal error. Can't send connection to a shard");
+                (connection, is_ok) = response.lock().await.recv().await.expect("Failed to recv");
                 if !is_ok {
                     break;
                 }
@@ -324,14 +325,14 @@ impl Server {
                     connection.flush().await.expect("Failed to flush connection");
                     break;
                 }
-                connection.close().expect("Failed to close connection");
+                connection.close().await.expect("Failed to close connection");
                 return Err(Box::new(CustomError::new("Bad request.")));
             }
 
             // TODO: log
             status = Self::handle_server_message(server.clone(), connection, message).await;
             if status != Status::Ok {
-                connection.close().expect("Failed to close connection");
+                connection.close().await.expect("Failed to close connection");
                 return Err(Box::new(CustomError::new("Bad request.")));
             }
         }

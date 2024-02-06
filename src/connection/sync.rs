@@ -51,15 +51,16 @@ impl<'a> SyncBufConnection {
     }
 
     #[inline(always)]
-    pub fn close(&mut self) -> std::io::Result<()> {
-        self.get().close()
+    pub async fn close(&mut self) -> std::io::Result<()> {
+        self.get().close().await
     }
 }
 
 impl Drop for SyncBufConnection {
     fn drop(&mut self) {
         unsafe {
-            Box::from_raw(self.ptr);
+            drop(Box::from_raw(self.ptr));
+            println!("todo: we dropped here")
         }
     }
 }

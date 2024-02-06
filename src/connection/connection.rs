@@ -1,6 +1,7 @@
 use tokio::io::{AsyncReadExt, AsyncWriteExt, BufWriter};
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::TcpStream;
+use tokio::runtime::Handle;
 use crate::utils::fastbytes::uint;
 use crate::utils::fastbytes::uint::u16;
 
@@ -257,12 +258,20 @@ impl<'a> BufConnection {
     }
 
     #[inline(always)]
-    pub fn close(&mut self) -> std::io::Result<()> {Ok(())}
+    pub async fn close(&mut self) -> std::io::Result<()> {
+        self.writer.shutdown().await.expect("TODO: panic message");
+        Ok(())
+    }
 }
 
 impl Drop for BufConnection {
     fn drop(&mut self) {
-        self.close().expect("Failed to close connection");
+        tokio::task::block_in_place(move || {
+            Handle::current().block_on(async move {
+                self.close().await.expect("Failed to close connection");
+                println!("todo: we dropped in conn")
+            });
+        });
     }
 }
 

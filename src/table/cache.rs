@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32};
 use std::sync::atomic::Ordering::SeqCst;
+use async_trait::async_trait;
 use crate::bin_types::{BinKey, BinValue};
 use crate::constants;
 use crate::constants::actions;
@@ -52,6 +53,7 @@ impl<I: Index<BinKey, (u64, BinValue)>> CacheTable<I> {
     }
 }
 
+#[async_trait]
 impl<I: Index<BinKey, (u64, BinValue)>> Table for CacheTable<I> {
     #[inline(always)]
     fn engine(&self) -> TableEngine {
@@ -86,9 +88,9 @@ impl<I: Index<BinKey, (u64, BinValue)>> Table for CacheTable<I> {
     }
 
     #[inline(always)]
-    fn set(&mut self, key: BinKey, value: BinValue, log_writer: &mut LogWriter) -> Option<BinValue> {
+    async fn set(&mut self, key: BinKey, value: BinValue, log_writer: &mut LogWriter) -> Option<BinValue> {
         if self.is_it_logging {
-            log_writer.write_key_and_value(actions::SET, self.number, &key, &value);
+            log_writer.write_key_and_value(actions::SET, self.number, &key, &value).await;
         }
 
         let res = self.index.set(key, (NOW_MINUTES.load(SeqCst), value));
@@ -108,9 +110,9 @@ impl<I: Index<BinKey, (u64, BinValue)>> Table for CacheTable<I> {
     }
 
     #[inline(always)]
-    fn insert(&mut self, key: BinKey, value: BinValue, log_writer: &mut LogWriter) -> bool {
+    async fn insert(&mut self, key: BinKey, value: BinValue, log_writer: &mut LogWriter) -> bool {
         if self.is_it_logging {
-            log_writer.write_key_and_value(actions::INSERT, self.number, &key, &value);
+            log_writer.write_key_and_value(actions::INSERT, self.number, &key, &value).await;
         }
 
         self.index.insert(key, (NOW_MINUTES.load(SeqCst), value))
@@ -122,9 +124,9 @@ impl<I: Index<BinKey, (u64, BinValue)>> Table for CacheTable<I> {
     }
 
     #[inline(always)]
-    fn delete(&mut self, key: &BinKey, log_writer: &mut LogWriter) {
+    async fn delete(&mut self, key: &BinKey, log_writer: &mut LogWriter) {
         if self.is_it_logging {
-            log_writer.write_key(actions::DELETE, self.number, key);
+            log_writer.write_key(actions::DELETE, self.number, key).await;
         }
 
         self.index.remove(key);

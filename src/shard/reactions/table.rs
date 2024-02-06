@@ -1,3 +1,4 @@
+use std::thread;
 use crate::connection::{BufConnection, Status};
 use crate::constants::actions;
 use crate::index::HashInMemoryIndex;
@@ -58,9 +59,6 @@ pub async fn create_table_in_memory(connection: &mut BufConnection, shard_manage
     if !is_exist {
         for shard in shard_manager.shards.shards.iter() {
             Storage::create_in_memory_table(number as u16, shard.get_storage(), name.clone(), HashInMemoryIndex::new(), is_it_logging, scheme.clone().unwrap(), user_scheme).await;
-        }
-        for shard in shard_manager.shards.shards.iter() {
-            println!("{} {}", shard.get_storage().tables.get_mut().len(), shard.get_storage().number);
         }
     }
 

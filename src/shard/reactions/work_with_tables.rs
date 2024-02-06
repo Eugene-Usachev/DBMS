@@ -85,7 +85,7 @@ pub async fn insert(connection: &mut BufConnection, storage: &mut Storage, messa
     let value = &message[5+key_size..];
     return match tables.get_mut(uint::u16(&message[1..3]) as usize) {
         Some(table) => {
-            table.insert(BinKey::new(key), BinValue::new(value), &mut storage.log_writer);
+            table.insert(BinKey::new(key), BinValue::new(value), &mut storage.log_writer).await;
             connection.write_message(&[actions::DONE]).await
         }
         None => {
@@ -105,7 +105,7 @@ pub async fn set(connection: &mut BufConnection, storage: &mut Storage, message:
     let value = &message[5+key_size..];
     return match tables.get_mut(uint::u16(&message[1..3]) as usize) {
         Some(table) => {
-            table.set(BinKey::new(key), BinValue::new(value), &mut storage.log_writer);
+            table.set(BinKey::new(key), BinValue::new(value), &mut storage.log_writer).await;
             connection.write_message(&[actions::DONE]).await
         }
         None => {
@@ -123,7 +123,7 @@ pub async fn delete(connection: &mut BufConnection, storage: &mut Storage, messa
     let key = &message[3..];
     return match tables.get_mut(uint::u16(&message[1..3]) as usize) {
         Some(table) => {
-            table.delete(&BinKey::new(key), &mut storage.log_writer);
+            table.delete(&BinKey::new(key), &mut storage.log_writer).await;
             connection.write_message(&[actions::DONE]).await
         }
         None => {

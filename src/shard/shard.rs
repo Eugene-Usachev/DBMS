@@ -1,5 +1,6 @@
 use std::error::Error;
-use crossbeam_channel::{Receiver, Sender};
+use std::time::{Duration, Instant};
+use tokio::sync::mpsc::{Receiver, Sender};
 use crate::connection::{BufConnection, Status, SyncBufConnection};
 use crate::constants::actions;
 use crate::error::CustomError;
@@ -23,13 +24,17 @@ impl<'a> Shard {
         return shard;
     }
 
-    pub fn run(mut shard: &mut Shard, sender: Sender<ShardResponse>, receiver: Receiver<ShardRequest>) {
+    pub fn run(mut shard: &mut Shard, sender: Sender<ShardResponse>, mut receiver: Receiver<ShardRequest>) {
         tokio::runtime::Builder::new_current_thread().thread_name("shard worker").enable_all().build().unwrap().block_on(async move {
             let mut conn;
             loop {
-                conn = receiver.recv().unwrap();
-                shard.handle_connection(&mut conn).await.expect("Failed to handle connection");
-                sender.send((conn, true)).unwrap();
+                conn = receiver.recv().await.unwrap();
+                let res = shard.handle_connection(&mut conn).await;
+                if res.is_err() {
+                    sender.send((conn, false)).await.unwrap();
+                    continue;
+                }
+                sender.send((conn, true)).await.unwrap();
             }
         });
     }
@@ -45,13 +50,13 @@ impl<'a> Shard {
                     connection.flush().await.expect("Failed to flush connection");
                     break;
                 }
-                connection.close().expect("Failed to close connection");
+                connection.close().await.expect("Failed to close connection");
                 return Err(Box::new(CustomError::new("Bad request")));
             }
 
             status = self.handle_message(connection.get(), message).await;
             if status != Status::Ok {
-                connection.close().expect("Failed to close connection");
+                connection.close().await.expect("Failed to close connection");
                 return Err(Box::new(CustomError::new("Bad request")));
             }
         }

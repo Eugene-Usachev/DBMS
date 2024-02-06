@@ -140,13 +140,13 @@ impl Storage {
                     let engine = table.engine();
                     match engine {
                         TableEngine::InMemory => {
-                            Self::write_in_memory_table_on_disk(storage_for_dump.clone(), &table.name(), number, table.is_it_logging(), &table.user_scheme());
+                            Self::write_in_memory_table_on_disk(storage_for_dump.clone(), &table.name(), number, table.is_it_logging(), &table.user_scheme()).await;
                         }
                         TableEngine::OnDisk => {
-                            Self::write_on_disk_table_on_disk(storage_for_dump.clone(), &table.name(), number, &table.user_scheme());
+                            Self::write_on_disk_table_on_disk(storage_for_dump.clone(), &table.name(), number, &table.user_scheme()).await;
                         }
                         TableEngine::CACHE => {
-                            Self::write_cache_table_on_disk(storage_for_dump.clone(), &table.name(), number, table.is_it_logging(), table.cache_duration(), &table.user_scheme());
+                            Self::write_cache_table_on_disk(storage_for_dump.clone(), &table.name(), number, table.is_it_logging(), table.cache_duration(), &table.user_scheme()).await;
                         }
                     }
                 }

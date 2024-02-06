@@ -1,15 +1,15 @@
-use std::sync::Arc;
+use std::sync::{Arc};
 use std::sync::atomic::AtomicU32;
-use std::{mem, thread};
-use crossbeam_channel::{Receiver, Sender};
-use tokio::sync::RwLock;
+use std::{thread};
+use tokio::sync::mpsc::{Receiver, Sender};
+use tokio::sync::{Mutex, RwLock};
 use crate::shard::shard::{ShardRequest, ShardResponse};
 use crate::shard::shard::Shard;
 use crate::shard::shard_ref::{ShardRef, Shards};
 
 pub struct Manager {
     pub shards: Shards,
-    pub connectors: Box<[(Sender<ShardRequest>, Receiver<ShardResponse>)]>,
+    pub connectors: Box<[(tokio::sync::Mutex<Sender<ShardRequest>>, tokio::sync::Mutex<Receiver<ShardResponse>>)]>,
     pub number_of_dumps: Arc<AtomicU32>,
     pub tables_names: RwLock<Vec<String>>,
 }
@@ -20,9 +20,9 @@ impl Manager {
         let mut shards = Vec::with_capacity(core_ids.len());
         let mut connectors = Vec::with_capacity(core_ids.len());
         for (i, id) in core_ids.iter().enumerate() {
-            let (request_sender, request_receiver) = crossbeam_channel::bounded(100);
-            let (response_sender, response_receiver) = crossbeam_channel::bounded(100);
-            connectors.push((request_sender, response_receiver));
+            let (request_sender, request_receiver) = tokio::sync::mpsc::channel(100);
+            let (response_sender, response_receiver) = tokio::sync::mpsc::channel(100);
+            connectors.push((Mutex::new(request_sender), Mutex::new(response_receiver)));
             let id = id.clone();
             let shard = Shard::create(i).await;
             let shard_ptr = Box::into_raw(Box::new(shard));

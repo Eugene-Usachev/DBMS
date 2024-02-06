@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 use crate::bin_types::{BinKey, BinValue};
 use crate::table::table::{Table, TableEngine};
 
@@ -30,6 +31,7 @@ impl<I: Index<BinKey, (u64, u64)>> OnDiskTable<I> {
     }
 }
 
+#[async_trait]
 impl<I: Index<BinKey, (u64, u64)>> Table for OnDiskTable<I> {
     #[inline(always)]
     fn engine(&self) -> TableEngine {
@@ -57,7 +59,7 @@ impl<I: Index<BinKey, (u64, u64)>> Table for OnDiskTable<I> {
     }
 
     #[inline(always)]
-    fn set(&mut self, key: BinKey, value: BinValue, _: &mut LogWriter) -> Option<BinValue> {
+    async fn set(&mut self, key: BinKey, value: BinValue, _: &mut LogWriter) -> Option<BinValue> {
         self.core.set(key, value)
     }
 
@@ -67,7 +69,7 @@ impl<I: Index<BinKey, (u64, u64)>> Table for OnDiskTable<I> {
     }
 
     #[inline(always)]
-    fn insert(&mut self, key: BinKey, value: BinValue, _: &mut LogWriter) -> bool {
+    async fn insert(&mut self, key: BinKey, value: BinValue, _: &mut LogWriter) -> bool {
         self.core.insert(key, value)
     }
 
@@ -77,7 +79,7 @@ impl<I: Index<BinKey, (u64, u64)>> Table for OnDiskTable<I> {
     }
 
     #[inline(always)]
-    fn delete(&mut self, key: &BinKey, _: &mut LogWriter) {
+    async fn delete(&mut self, key: &BinKey, _: &mut LogWriter) {
         self.core.delete(key);
     }
 
