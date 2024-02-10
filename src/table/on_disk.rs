@@ -19,7 +19,7 @@ impl<I: Index<BinKey, (u64, u64)>> OnDiskTable<I> {
         name: String,
         size: usize,
         index: I,
-        scheme: scheme::Scheme,
+        scheme: Scheme,
         user_scheme: Box<[u8]>,
     ) -> OnDiskTable<I> {
         OnDiskTable {

@@ -89,7 +89,7 @@ impl Drop for BinKey {
         let len = self.len();
         let size = if len < 255 { 1 } else { 3 };
         unsafe {
-            Vec::from_raw_parts(self.ptr, len + size, len + size);
+            drop(Vec::from_raw_parts(self.ptr, len + size, len + size));
         }
     }
 }

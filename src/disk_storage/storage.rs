@@ -51,6 +51,7 @@ impl<I: Index<BinKey, (u64, u64)>> DiskStorage<I> {
             let mut file = file.lock().unwrap();
             file.write_key_with_size(&key, k_size).expect("failed to write to file");
             file.write_value_with_size(&value, v_size).expect("failed to write to file");
+            file.flush().expect("failed to flush");
             index = atomic_index.fetch_add((vl + v_size) as u64, std::sync::atomic::Ordering::SeqCst);
         }
 
@@ -61,12 +62,10 @@ impl<I: Index<BinKey, (u64, u64)>> DiskStorage<I> {
 
     #[inline(always)]
     pub(crate) fn get(&self, key: &BinKey) -> Option<BinValue>{
-        let res = self.get_index_and_file(key);
-        if res.is_none() {
-            return None;
-        }
+        // TODO: uncomment
+        // TODO: should we use BufReader?
+        let (file, info) = self.get_index_and_file(key)?;
 
-        let (file, info) = unsafe { res.unwrap_unchecked() };
         let mut buf = vec![0; info.0 as usize];
         file.read().unwrap().read_at(info.1, &mut buf).expect("failed to read");
 
@@ -75,12 +74,14 @@ impl<I: Index<BinKey, (u64, u64)>> DiskStorage<I> {
 
     #[inline(always)]
     pub(crate) fn delete(&self, key: &BinKey) {
-        let file = self.get_need_to_delete(key);
+        let file_lock = self.get_need_to_delete(key);
+        let mut file = file_lock.lock().unwrap();
         if self.infos.remove(key).is_none() {
             return;
         }
 
-        file.lock().unwrap().write_key(key).expect("failed to write");
+        file.write_key(key).expect("failed to write");
+        file.flush().expect("failed to flush");
     }
 
     #[inline(always)]
@@ -99,6 +100,7 @@ impl<I: Index<BinKey, (u64, u64)>> DiskStorage<I> {
         {
             let mut file = file.lock().unwrap();
             file.write_key_with_size(&key, size_kl).expect("failed to write");
+            file.flush().expect("failed to flush");
             index = atomic_index.fetch_add((vl + size_vl) as u64, std::sync::atomic::Ordering::SeqCst);
         }
 
@@ -108,10 +110,12 @@ impl<I: Index<BinKey, (u64, u64)>> DiskStorage<I> {
             let delete_file_ = self.files_for_need_to_delete[number].clone();
             let mut delete_file = delete_file_.lock().unwrap();
             delete_file.write_key_with_size(&key, size_kl).expect("failed to write");
+            delete_file.flush().expect("failed to flush");
 
             let info = unsafe { old_value.unwrap_unchecked() };
             let mut buf = vec![0; info.0 as usize];
             let file = self.read_files[number].clone();
+            // TODO: should we use BufReader?
             file.read().unwrap().read_at(info.1, &mut buf).expect("failed to read");
 
             return Some(BinValue::new(buf.as_slice()));
@@ -314,7 +318,7 @@ impl<I: Index<BinKey, (u64, u64)>> DiskStorage<I> {
     }
 }
 
-// some helpers functions
+// some helpers function
 impl<I: Index<BinKey, (u64, u64)>> DiskStorage<I> {
     #[allow(unused_variables)]
     pub(crate) fn new(path: String, size: usize, index: I) -> DiskStorage<I> {
