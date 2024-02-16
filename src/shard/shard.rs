@@ -47,7 +47,6 @@ impl<'a> Shard {
             if status != Status::Ok {
                 if status == Status::All {
                     self.storage.log_writer.flush().await;
-                    connection.flush().await.expect("Failed to flush connection");
                     break;
                 }
                 connection.close().await.expect("Failed to close connection");

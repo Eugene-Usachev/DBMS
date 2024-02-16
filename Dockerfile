@@ -1,8 +1,11 @@
 ARG RUST_VERSION=1.76.0
 ARG APP_NAME=dbms
 
+
 FROM --platform=$BUILDPLATFORM tonistiigi/xx:1.3.0 AS xx
 
+################################################################################
+# Create a stage for building the application.
 FROM --platform=$BUILDPLATFORM rust:${RUST_VERSION}-slim-bullseye AS build
 ARG APP_NAME
 WORKDIR /app
@@ -26,6 +29,7 @@ cp ./target/$(xx-cargo --print-target-triple)/release/$APP_NAME /bin/server
 xx-verify /bin/server
 EOF
 
+
 FROM debian:bullseye-slim AS final
 
 USER root
@@ -35,4 +39,3 @@ COPY --from=build /bin/server /bin/
 EXPOSE 8081
 
 CMD ["/bin/server"]
-

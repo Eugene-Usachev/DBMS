@@ -309,6 +309,7 @@ impl Server {
                 if !is_ok {
                     break;
                 }
+                connection.flush().await.expect("Failed to flush connection");
             } else {
                 Self::handle_server_request(server.clone(), connection.get()).await.expect("Failed to handle server request");
             }
