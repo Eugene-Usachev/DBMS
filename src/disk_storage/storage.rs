@@ -343,7 +343,7 @@ impl<I: Index<BinKey, (u64, u64)>> DiskStorage<I> {
                 files: vec![].into_boxed_slice(),
                 read_files: vec![].into_boxed_slice(),
                 files_for_need_to_delete: vec![].into_boxed_slice(),
-                path,
+                path: path.clone(),
                 size,
                 lob,
                 rs,
