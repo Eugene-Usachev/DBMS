@@ -1,6 +1,4 @@
 use std::sync::Arc;
-use std::sync::atomic::AtomicU32;
-use std::sync::atomic::Ordering::SeqCst;
 use crate::bin_types::{BinKey, BinValue};
 use crate::connection::{BufConnection, Status};
 use crate::constants::actions;
@@ -18,7 +16,7 @@ pub fn get<S: Stream>(connection: &mut BufConnection<S>, storage: &Arc<Storage>,
     return match tables.get(uint::u16(&message[1..3]) as usize) {
         Some(table) => unsafe {
             let res = table.get(&BinKey::new(&message[3..]));
-            if (res.is_none()) {
+            if res.is_none() {
                 connection.write_message(&[actions::NOT_FOUND]);
             }
             let value = res.unwrap_unchecked();
@@ -40,7 +38,7 @@ pub fn get_field<S: Stream>(connection: &mut BufConnection<S>, storage: &Arc<Sto
         Some(table) => unsafe {
             let field = uint::u16(&message[3..5]);
             let res = table.get_field(&BinKey::new(&message[5..]), field as usize);
-            if (res.is_none()) {
+            if res.is_none() {
                 return connection.write_message(&[actions::NOT_FOUND]);
             }
             let value = res.unwrap_unchecked();
@@ -66,7 +64,7 @@ pub fn get_fields<S: Stream>(connection: &mut BufConnection<S>, storage: &Arc<St
                 fields.push(uint::u16(&message[5+i*2..5+i*2+2]) as usize);
             }
             let res = table.get_fields(&BinKey::new(&message[5..]), &fields);
-            if (res.is_none()) {
+            if res.is_none() {
                 return connection.write_message(&[actions::NOT_FOUND])
             }
             let value = res.unwrap_unchecked();

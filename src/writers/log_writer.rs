@@ -3,7 +3,6 @@
 // TODO: maybe remove?
 
 use std::fs::File;
-use std::intrinsics::copy_nonoverlapping;
 use std::io::{BufWriter, Write};
 use std::sync::{Arc, Mutex};
 use crate::bin_types::{BinKey, BinValue};
@@ -29,7 +28,7 @@ impl Drop for LogFile {
 
 impl Write for LogFile {
     fn write(&mut self, data: &[u8]) -> std::io::Result<usize> {
-        self.file.lock().unwrap().write_all(data);
+        let _ = self.file.lock().unwrap().write_all(data);
         Ok(data.len())
     }
     fn flush(&mut self) -> std::io::Result<()> {

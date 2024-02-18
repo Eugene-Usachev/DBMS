@@ -1,9 +1,11 @@
+#![cfg(test)]
 use std::io::{Write};
 use std::sync::Arc;
 use crate::bin_types::{BinKey, BinValue};
 use crate::index::HashInMemoryIndex;
 use crate::scheme::scheme::empty_scheme;
 use crate::storage::Storage;
+use crate::success;
 use crate::writers::LogWriter;
 
 #[cfg(test)]
@@ -98,7 +100,7 @@ fn test_dump(storage: Arc<Storage>) {
         panic!("can't read after rise. scheme: {:?}", tables[number2].user_scheme());
     }
 
-    println!("persistence: dump was successful");
+    success!("persistence: dump was successful");
 }
 
 #[cfg(test)]
@@ -174,5 +176,5 @@ fn test_dump_and_log(storage: Arc<Storage>) {
         }
     }
 
-    println!("persistence: dump and read the log was successful");
+    success!("persistence: dump and read the log was successful");
 }

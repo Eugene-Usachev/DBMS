@@ -1,7 +1,6 @@
 use std::fs::OpenOptions;
 use std::io::{Seek, SeekFrom, Write};
-use std::net::{TcpListener, TcpStream};
-use std::ops::Deref;
+use std::net::{TcpListener};
 #[cfg(not(target_os = "windows"))]
 use std::os::unix::net::UnixListener;
 use std::path::PathBuf;
@@ -11,7 +10,7 @@ use crate::connection::{BufConnection, Status};
 
 use crate::constants::actions;
 use crate::constants::actions::DONE;
-use crate::constants::paths::PERSISTENCE_DIR;
+use crate::{error, success, warn};
 use crate::node::Node;
 use crate::server::cfg::Config;
 use crate::storage::storage::Storage;
@@ -52,10 +51,8 @@ fn read_more(chunk: &mut [u8], start_offset: usize, bytes_read: usize, offset_la
 impl Server {
     pub fn new(storage: Arc<Storage>) -> Self {
         let config = Config::new();
-
-        let hierarchy_file_path: PathBuf = ["..", PERSISTENCE_DIR, "hierarchy.bin"].iter().collect();
-        
-        let shard_metadata_file_path: PathBuf = ["..", PERSISTENCE_DIR, "shard metadata.bin"].iter().collect();
+        let hierarchy_file_path: PathBuf = storage.persistence_dir_path.join("hierarchy.bin");
+        let shard_metadata_file_path: PathBuf = storage.persistence_dir_path.join("shard metadata.bin");
 
         let mut server = Self {
             storage: storage.clone(),
@@ -80,7 +77,7 @@ impl Server {
     }
 
     fn rise_hierarchy_and_lookup_node(&mut self) {
-        let mut file = OpenOptions::new()
+        let file = OpenOptions::new()
             .write(true)
             .create(true)
             .read(true)
@@ -100,7 +97,7 @@ impl Server {
             } else {
                 let mut l;
                 let mut read;
-                let mut offset = 0;
+                let mut offset;
                 let mut number_of_machines = 0;
                 let mut buf = vec![0u8; 4096];
                 let mut offset_last_record = 0;
@@ -161,7 +158,7 @@ impl Server {
                     }
                 }
                 if node.len() == 0 {
-                    println!("Incorrect hierarchy file!");
+                    error!("Incorrect hierarchy file!");
                     self.hierarchy = vec![vec![self.tcp_addr.clone()]];
                     return;
                 }
@@ -173,11 +170,11 @@ impl Server {
     }
     
     fn set_up_shard_metadata_file(&mut self) {
-        /// We split all data in shards. We have 65,536 shards, and we distribute shards into different nodes.
-        /// We store shard metadata as [`number of machine addresses`, [`address length`, `machine address`]; 65,536].
-        /// We always think that the leftmost alive machine is the master.
+        // We split all data in shards. We have 65,536 shards, and we distribute shards into different nodes.
+        // We store shard metadata as [`number of machine addresses`, [`address length`, `machine address`]; 65,536].
+        // We always think that the leftmost alive machine is the master.
 
-        let mut file = OpenOptions::new()
+        let file = OpenOptions::new()
             .write(true)
             .create(true)
             .read(true)
@@ -233,7 +230,7 @@ impl Server {
                         panic!("Can't bind to address: {}, the error is: {:?}", unix_port, e);
                     }
                 };
-                println!("Server unix listening on address {}", unix_port);
+                success!("Server unix listening on address {}", unix_port);
                 for stream in listener.incoming() {
                     let storage = storage.clone();
                     let server = server.clone();
@@ -243,7 +240,7 @@ impl Server {
                                 Self::handle_client(server, storage, BufConnection::new(stream));
                             }
                             Err(e) => {
-                                println!("Error: {}", e);
+                                error!("Error: {}", e);
                             }
                         }
                     });
@@ -257,7 +254,7 @@ impl Server {
                 panic!("Can't bind to address: {}, the error is: {:?}", server.tcp_addr.clone(), e);
             }
         };
-        println!("Server tcp listening on address {}", server.tcp_addr.clone());
+        success!("Server tcp listening on address {}", server.tcp_addr.clone());
         for stream in listener.incoming() {
             let server = server.clone();
             let storage= server.storage.clone();
@@ -267,7 +264,7 @@ impl Server {
                         Self::handle_client(server, storage, BufConnection::new(stream));
                     }
                     Err(e) => {
-                        println!("Error: {}", e);
+                        error!("Error: {}", e);
                     }
                 }
             });
@@ -279,19 +276,17 @@ impl Server {
         let mut status;
         if server.password.len() > 0 {
             let mut buf = vec![0;server.password.len()];
-            unsafe {
-                let reader = (&mut connection.reader);
-                reader.reader.read_exact(&mut buf).expect("Failed to read password");
-            }
+            let reader = &mut connection.reader;
+            reader.reader.read_exact(&mut buf).expect("Failed to read password");
             if buf != server.password.as_bytes() {
-                println!("Wrong password. Disconnected.");
+                warn!("Wrong password. Disconnected.");
                 connection.close().expect("Failed to close connection");
                 return;
             }
             connection.writer.write_all(&[DONE]).expect("Failed to write DONE");
             connection.writer.flush().expect("Failed to flush connection");
         }
-        println!("Connection accepted");
+        success!("Connection accepted");
 
         let mut log_writer = LogWriter::new(storage.log_file.clone());
 

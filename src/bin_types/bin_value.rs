@@ -33,15 +33,14 @@ impl<'a> BinValue {
         }
     }
 
+    #[allow(unused)]
     pub fn with_len(len: usize) -> Self {
         let new_slice: *mut u8;
-        let size;
         unsafe {
             if len < 65535 {
                 new_slice = Vec::<u8>::with_capacity(len + 2).leak().as_mut_ptr();
                 *new_slice.offset(0) = len as u8;
                 *new_slice.offset(1) = (len >> 8) as u8;
-                size = 2;
             } else {
                 new_slice = Vec::<u8>::with_capacity(len + 6).leak().as_mut_ptr();
                 *new_slice.offset(0) = 255u8;
@@ -50,7 +49,6 @@ impl<'a> BinValue {
                 *new_slice.offset(3) = (len >> 8) as u8;
                 *new_slice.offset(4) = (len >> 16) as u8;
                 *new_slice.offset(5) = (len >> 24) as u8;
-                size = 6;
             }
         }
         BinValue {
@@ -99,7 +97,7 @@ impl<'a> BinValue {
 
     #[inline(always)]
     pub fn len(&self) -> usize {
-        let mut l;
+        let l;
         unsafe {
             // first byte is length
             l = (*self.ptr) as usize | (*self.ptr.offset(1) as usize) << 8;

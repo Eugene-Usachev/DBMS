@@ -1,8 +1,10 @@
+#![cfg(test)]
 use std::sync::Arc;
 use crate::bin_types::{BinKey, BinValue};
 use crate::index::HashInMemoryIndex;
 use crate::scheme::scheme::empty_scheme;
 use crate::storage::Storage;
+use crate::success;
 use crate::writers::LogWriter;
 
 #[cfg(test)]
@@ -29,7 +31,7 @@ pub fn crud(storage: Arc<Storage>) {
         }
     }
 
-    println!("crud: get and insert were successful");
+    success!("crud: get and insert were successful");
 
     for i in 0..10000 {
         unsafe {
@@ -43,7 +45,7 @@ pub fn crud(storage: Arc<Storage>) {
         }
     }
 
-    println!("crud: delete was successful");
+    success!("crud: delete was successful");
 
     for i in 0..10000 {
         unsafe {
@@ -57,5 +59,5 @@ pub fn crud(storage: Arc<Storage>) {
         }
     }
 
-    println!("crud: set was successful");
+    success!("crud: set was successful");
 }

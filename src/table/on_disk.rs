@@ -1,21 +1,22 @@
+use std::path::PathBuf;
 use crate::bin_types::{BinKey, BinValue};
 use crate::table::table::{Table, TableEngine};
 
 use crate::disk_storage::storage::DiskStorage;
 use crate::index::Index;
-use crate::scheme::scheme;
 use crate::scheme::scheme::Scheme;
 use crate::writers::LogWriter;
 
 pub struct OnDiskTable<I: Index<BinKey, (u64, u64)>> {
     core: DiskStorage<I>,
     name: String,
-    scheme: scheme::Scheme,
+    scheme: Scheme,
     user_scheme: Box<[u8]>,
 }
 
 impl<I: Index<BinKey, (u64, u64)>> OnDiskTable<I> {
     pub(crate) fn new(
+        persistence_dir_path: PathBuf,
         name: String,
         size: usize,
         index: I,
@@ -23,7 +24,7 @@ impl<I: Index<BinKey, (u64, u64)>> OnDiskTable<I> {
         user_scheme: Box<[u8]>,
     ) -> OnDiskTable<I> {
         OnDiskTable {
-            core: DiskStorage::new(name.clone(), size, index),
+            core: DiskStorage::new(persistence_dir_path.join(name.clone()), size, index),
             name,
             scheme,
             user_scheme,

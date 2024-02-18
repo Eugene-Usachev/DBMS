@@ -1,3 +1,5 @@
+use crate::info;
+
 #[allow(dead_code)]
 pub(crate) fn start_message() {
     let welcome_message = format!("
@@ -11,5 +13,5 @@ pub(crate) fn start_message() {
        "Complete the setup, it will only take a couple of seconds",
     );
 
-    println!("{}", welcome_message);
+    info!("{}", welcome_message);
 }

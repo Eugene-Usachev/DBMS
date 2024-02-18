@@ -1,6 +1,8 @@
+#![cfg(test)]
 use std::sync::Arc;
 use crate::bin_types::{BinKey, BinValue};
 use crate::index::HashInMemoryIndex;
+use crate::info;
 use crate::scheme::scheme::empty_scheme;
 use crate::storage::Storage;
 use crate::writers::LogWriter;
@@ -72,7 +74,7 @@ pub fn crud_bench(storage: Arc<Storage>) {
     for join in joins {
         join.join().unwrap();
     }
-    println!("crud_bench: insert took {} ms and has {} RPS", start.elapsed().as_millis(), N as f64 / start.elapsed().as_secs_f64());
+    info!("crud_bench: insert took {} ms and has {} RPS", start.elapsed().as_millis(), N as f64 / start.elapsed().as_secs_f64());
 
     let mut joins = Vec::with_capacity(PAR);
     let start = std::time::Instant::now();
@@ -88,7 +90,7 @@ pub fn crud_bench(storage: Arc<Storage>) {
     for join in joins {
         join.join().unwrap();
     }
-    println!("crud_bench: get took {} ms and has {} RPS", start.elapsed().as_millis(), N as f64 / start.elapsed().as_secs_f64());
+    info!("crud_bench: get took {} ms and has {} RPS", start.elapsed().as_millis(), N as f64 / start.elapsed().as_secs_f64());
 
     let mut joins = Vec::with_capacity(PAR);
     let start = std::time::Instant::now();
@@ -106,7 +108,7 @@ pub fn crud_bench(storage: Arc<Storage>) {
     for join in joins {
         join.join().unwrap();
     }
-    println!("crud_bench: set took {} ms and has {} RPS", start.elapsed().as_millis(), N as f64 / start.elapsed().as_secs_f64());
+    info!("crud_bench: set took {} ms and has {} RPS", start.elapsed().as_millis(), N as f64 / start.elapsed().as_secs_f64());
 
     let mut joins = Vec::with_capacity(PAR);
     let start = std::time::Instant::now();
@@ -123,5 +125,5 @@ pub fn crud_bench(storage: Arc<Storage>) {
     for join in joins {
         join.join().unwrap();
     }
-    println!("crud_bench: delete took {} ms and has {} RPS", start.elapsed().as_millis(), N as f64 / start.elapsed().as_secs_f64());
+    info!("crud_bench: delete took {} ms and has {} RPS", start.elapsed().as_millis(), N as f64 / start.elapsed().as_secs_f64());
 }

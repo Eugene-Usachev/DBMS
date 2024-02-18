@@ -1,6 +1,5 @@
-use std::fmt::{Display};
 use std::io::{BufWriter, Read, Write};
-use std::time::Duration;
+use crate::error;
 use crate::stream::Stream;
 use crate::utils::fastbytes::uint;
 use crate::utils::fastbytes::uint::u16;
@@ -44,7 +43,7 @@ pub struct BufConnection<S: Stream> {
 }
 
 impl<'a, S: Stream> BufConnection<S> {
-    pub fn new(mut stream: S) -> Self {
+    pub fn new(stream: S) -> Self {
         let clone = stream.clone_ptr();
         let reader = BufReader::new(clone);
         let writer = BufWriter::with_capacity(BUFFER_SIZE, stream);
@@ -56,11 +55,13 @@ impl<'a, S: Stream> BufConnection<S> {
     }
 
     #[inline(always)]
+    #[allow(unused)]
     pub fn reader(&'a mut self) -> &'a mut BufReader<S> {
         &mut self.reader
     }
 
     #[inline(always)]
+    #[allow(unused)]
     pub fn stream(&'a mut self) -> &'a mut S {
         self.writer.get_mut()
     }
@@ -71,7 +72,7 @@ impl<'a, S: Stream> BufConnection<S> {
     }
 
     #[inline(always)]
-    fn read_more(reader: &mut BufReader<S>, mut needed: usize) -> Status {
+    fn read_more(reader: &mut BufReader<S>, needed: usize) -> Status {
         if needed > BUFFER_SIZE {
             reader.big_buf.resize(needed, 0);
             let mut read = reader.write_offset - reader.read_offset;
@@ -90,7 +91,7 @@ impl<'a, S: Stream> BufConnection<S> {
                         }
                     }
                     Err(e) => {
-                        println!("Read connection error: {:?}", e);
+                        error!("Read connection error: {:?}", e);
                         return Status::Error;
                     }
                 };
@@ -118,7 +119,7 @@ impl<'a, S: Stream> BufConnection<S> {
                     }
                 }
                 Err(e) => {
-                    println!("Read connection error: {:?}", e);
+                    error!("Read connection error: {:?}", e);
                     return Status::Error;
                 }
             };

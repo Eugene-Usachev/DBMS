@@ -6,13 +6,13 @@ use std::cell::UnsafeCell;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use crate::table::table::{Table, TableEngine};
 use std::fs::{File, OpenOptions};
-use std::io::{Read, Write};
+use std::io::{ErrorKind, Read, Write};
 use std::path::PathBuf;
 use crate::bin_types::{BinKey, BinValue};
-use crate::constants;
 use crate::constants::actions::*;
 use crate::index::{HashInMemoryIndex, Index};
-use crate::scheme::scheme::{empty_scheme, Scheme, scheme_from_bytes, SchemeJSON};
+use crate::{error, info, success, warn};
+use crate::scheme::scheme::{empty_scheme, Scheme, scheme_from_bytes};
 use crate::table::cache::CacheTable;
 use crate::table::in_memory::InMemoryTable;
 use crate::table::on_disk::OnDiskTable;
@@ -36,7 +36,7 @@ pub struct Storage {
     pub number_of_dumps: Arc<AtomicU32>,
     pub last_tables_count: AtomicU32,
 
-    //pub log_writer: Arc<PipeWriter>,
+    pub persistence_dir_path: PathBuf,
     pub log_file: LogFile,
     pub table_configs_file_path: PathBuf,
     pub number_of_dumps_file_path: PathBuf,
@@ -49,21 +49,20 @@ unsafe impl Send for Storage {}
 unsafe impl Sync for Storage {}
 
 impl Storage {
-    pub fn new() -> Self {
-        let path: PathBuf = ["..", constants::paths::PERSISTENCE_DIR].iter().collect();
-        std::fs::create_dir_all(path).expect("[Error] Failed to create the persistence directory");
+    pub fn new(persistence_dir_path: PathBuf) -> Self {
+        std::fs::create_dir_all(&persistence_dir_path).expect("[Error] Failed to create the persistence directory");
         let dump_interval = match env::var("DUMP_INTERVAL") {
             Ok(value) => {
-                println!("The dump interval was set to: {} minutes using the environment variable \"DUMP_INTERVAL\"", value);
+                info!("The dump interval was set to: {} minutes using the environment variable \"DUMP_INTERVAL\"", value);
                 value.parse().expect("[Panic] The dump interval must be a number!")
             },
             Err(_) => {
-                println!("The dump interval was not set using the environment variable \"DUMP_INTERVAL\", setting it to 60 minutes");
+                info!("The dump interval was not set using the environment variable \"DUMP_INTERVAL\", setting it to 60 minutes");
                 60
             }
         };
 
-        let number_of_dumps_file_path: PathBuf = ["..", constants::paths::PERSISTENCE_DIR, "number_of_dumps.bin"].iter().collect();
+        let number_of_dumps_file_path: PathBuf = persistence_dir_path.join("number_of_dumps.bin");
         let file = OpenOptions::new().read(true).open(number_of_dumps_file_path.clone());
         let number_of_dumps;
         if file.is_err() {
@@ -81,11 +80,11 @@ impl Storage {
         }
 
         let file_name = "tables.bin";
-        let table_configs_file_path: PathBuf = ["..", constants::paths::PERSISTENCE_DIR, file_name].iter().collect();
+        let table_configs_file_path: PathBuf = persistence_dir_path.join(file_name);
         OpenOptions::new().append(true).create(true).open(table_configs_file_path.clone()).expect("[Error] Failed to open table configs file");
         let log_number = Self::get_log_file_number(number_of_dumps_file_path.clone());
         let file_name = format!("log{log_number}.bin", );
-        let path: PathBuf = ["..", constants::paths::PERSISTENCE_DIR, &file_name].iter().collect();
+        let path: PathBuf = persistence_dir_path.join(file_name);
         let log_file = OpenOptions::new()
             .read(true)
             .write(true)
@@ -100,7 +99,7 @@ impl Storage {
             cache_tables_indexes: RwLock::new(Vec::with_capacity(1)),
             number_of_dumps: Arc::new(AtomicU32::new(number_of_dumps)),
             last_tables_count: AtomicU32::new(0),
-            //log_writer: Arc::new(PipeWriter::new(path.to_str().unwrap().to_string())),
+            persistence_dir_path,
             log_file,
             table_configs_file_path,
             number_of_dumps_file_path,
@@ -121,7 +120,7 @@ impl Storage {
 
         {
             let file_name = format!("log{}.bin", number_of_dumps);
-            let path: PathBuf = ["..", constants::paths::PERSISTENCE_DIR, &file_name].iter().collect();
+            let path: PathBuf = storage.persistence_dir_path.join(file_name);
             let file = File::create(path).unwrap();
             *storage.log_file.file.lock().unwrap() = file;
         }
@@ -159,7 +158,7 @@ impl Storage {
         }
 
         let file_name = format!("log{}.bin", old_number_of_dumps);
-        let path: PathBuf = ["..", constants::paths::PERSISTENCE_DIR, &file_name].iter().collect();
+        let path: PathBuf = storage.persistence_dir_path.join(file_name);
         let _ = std::fs::remove_file(path);
     }
 
@@ -182,11 +181,11 @@ impl Storage {
                 if dump_after == 0 {
                     let storage = storage.clone();
                     tokio::spawn(async move {
-                        println!("Starting dump");
+                        info!("Starting dump");
                         let start = Instant::now();
                         Self::dump(storage.clone());
                         let elapsed = start.elapsed();
-                        println!("Dump took {:?} seconds", elapsed);
+                        success!("Dump took {:?} seconds", elapsed);
                     });
                     dump_after = dump_interval;
                 }
@@ -218,10 +217,10 @@ impl Storage {
             .create(true)
             .open(storage.table_configs_file_path.clone());
         if file_.is_err() {
-            println!("Can't open table config file. Creating new one.");
+            warn!("Can't open table config file. Creating new one.");
             file_ = File::create(storage.table_configs_file_path.clone());
             if file_.is_err() {
-                println!("Can't create table config file.");
+                error!("Can't create table config file.");
                 return;
             }
         }
@@ -255,6 +254,7 @@ impl Storage {
             return number;
         }
         let table = InMemoryTable::new(
+            storage.persistence_dir_path.clone(),
             number as u16,
             index,
             name.clone(),
@@ -298,6 +298,7 @@ impl Storage {
             return number;
         }
         let table = OnDiskTable::new(
+            storage.persistence_dir_path.clone(),
             name.clone(),
             512,
             index,
@@ -339,6 +340,7 @@ impl Storage {
             return number;
         }
         let table = CacheTable::new(
+            storage.persistence_dir_path.clone(),
             number as u16,
             index,
             cache_duration,
@@ -409,7 +411,6 @@ impl Storage {
             let mut offset;
             let mut offset_last_record = 0;
             let mut start_offset = 0;
-            let mut number;
             let mut cache_duration;
             let mut name_len;
             let mut name_offset;
@@ -450,7 +451,7 @@ impl Storage {
                                 continue 'read;
                             }
                             // TODO: think about safe of pushing
-                            number = (buf[offset + 1] as u16) << 8 | (buf[offset] as u16);
+                           let  number = (buf[offset + 1] as u16) << 8 | (buf[offset] as u16);
                             offset += 2;
 
                             if offset + 2 > bytes_read {
@@ -472,7 +473,7 @@ impl Storage {
                             name.copy_from_slice(&buf[name_offset..offset]);
                             let name = String::from_utf8(name).unwrap();
 
-                            if (offset + 1 > bytes_read) {
+                            if offset + 1 > bytes_read {
                                 read_more(&mut buf, start_offset, bytes_read, &mut offset_last_record);
                                 continue 'read;
                             }
@@ -516,7 +517,7 @@ impl Storage {
                                 continue 'read;
                             }
                             // TODO: think about safe of pushing
-                            number = (buf[offset + 1] as u16) << 8 | (buf[offset] as u16);
+                            let number = (buf[offset + 1] as u16) << 8 | (buf[offset] as u16);
                             offset += 2;
 
                             if offset + 2 > bytes_read {
@@ -574,7 +575,7 @@ impl Storage {
                                 continue 'read;
                             }
                             // TODO: think about safe of pushing
-                            number = (buf[offset + 1] as u16) << 8 | (buf[offset] as u16);
+                            let number = (buf[offset + 1] as u16) << 8 | (buf[offset] as u16);
                             offset += 2;
 
                             if offset + 2 > bytes_read {
@@ -652,9 +653,9 @@ impl Storage {
         }
 
         let storage_for_rise = storage.clone();
-        let mut tables;
+        let tables;
         unsafe {
-            tables = (&mut *storage_for_rise.tables.get());
+            tables = &mut *storage_for_rise.tables.get();
         }
         let mut joins = Vec::with_capacity((tables).len());
         for table in tables.iter_mut() {
@@ -673,6 +674,8 @@ impl Storage {
     }
 
     pub fn read_log(storage: Arc<Self>) {
+        // TODO: now we read one dump and one log. But when we start dumping, we create new log file.
+        // So, if the program was down, while we was dumping, we will have two log files!
         #[inline(always)]
         fn read_more(chunk: &mut [u8], start_offset: usize, bytes_read: usize, offset_last_record: &mut usize) {
             let slice_to_copy = &mut Vec::with_capacity(0);
@@ -681,397 +684,405 @@ impl Storage {
             chunk[0..*offset_last_record].copy_from_slice(slice_to_copy);
         }
 
-        let log_number = Self::get_log_file_number(storage.number_of_dumps_file_path.clone());
+        let mut log_number = Self::get_log_file_number(storage.number_of_dumps_file_path.clone());
 
-        let file_name = format!("log{}.bin", log_number);
-        let path: PathBuf = ["..", constants::paths::PERSISTENCE_DIR, &file_name].iter().collect();
-        let mut input = match File::open(path) {
-            Ok(file) => file,
-            Err(_) => {
-                return;
-            }
-        };
-
-        let file_len = input.metadata().unwrap().len();
-        let mut chunk = [0u8; 64 * 1024];
-        let mut total_read = 0;
-        let mut offset_last_record = 0;
-        let mut offset;
-        let mut start_offset = 0;
-        let mut action;
-        let mut kl;
-        let mut key_offset;
-        let mut name_len;
-        let mut name_offset;
-        let mut name;
-        let mut is_it_logging;
-        let mut vl;
-        let mut value_offset;
-        let mut number;
-        let mut cache_duration;
-        let mut scheme_len;
-        let mut scheme_offset;
-        let tables;
-        unsafe {
-            tables = (&mut *storage.tables.get()) as &mut Vec<Box<dyn Table>>;
-        }
-
-        'read: loop {
-            if total_read == file_len {
-                break;
-            }
-            let mut bytes_read = input.read(&mut chunk[offset_last_record..]).expect("Failed to read");
-            if bytes_read == 0 {
-                break;
-            }
-
-
-            bytes_read += offset_last_record;
-            offset = 0;
-            total_read += bytes_read as u64;
-
-            loop {
-                if offset + 1 > bytes_read {
-                    read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
-                    continue 'read;
+        loop {
+            let file_name = format!("log{}.bin", log_number);
+            let path: PathBuf = storage.persistence_dir_path.join(file_name);
+            let mut input = match File::open(path) {
+                Ok(file) => file,
+                Err(err) => {
+                    if err.kind() == ErrorKind::NotFound {
+                        return;
+                    }
+                    error!("Failed to open log file! Error: {}", err);
+                    return;
                 }
-                start_offset = offset;
-                action = chunk[offset];
-                offset += 1;
-                if action == 4 {
-                    panic!();
-                }
-                match action {
-                    INSERT => {
-                        if offset + 2 > bytes_read {
-                            read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
-                            continue 'read;
-                        }
-                        number = (chunk[offset + 1] as u16) << 8 | (chunk[offset] as u16);
-                        offset += 2;
+            };
 
-                        if offset + number as usize + 1 > bytes_read {
-                            read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
-                            continue 'read;
-                        }
-                        kl = chunk[offset] as u32;
-                        offset += 1;
-                        if kl == 255 {
-                            if offset + 2 > bytes_read {
-                                read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
-                                continue 'read;
-                            }
-                            kl = (chunk[offset + 1] as u32) << 8 | (chunk[offset] as u32);
-                            offset += 2;
-                        }
-
-                        if offset + kl as usize + 2 /*for vl*/ > bytes_read {
-                            read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
-                            continue 'read;
-                        }
-                        key_offset = offset;
-                        offset += kl as usize;
-
-                        vl = (chunk[offset + 1] as u32) << 8 | (chunk[offset] as u32);
-                        offset += 2;
-                        if vl == 65535 {
-                            if offset + 4 > bytes_read {
-                                read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
-                                continue 'read;
-                            }
-                            vl = (chunk[offset + 3] as u32) << 24 | (chunk[offset + 2] as u32) << 16 | (chunk[offset + 1] as u32) << 8 | (chunk[offset] as u32);
-                            offset += 4;
-                        }
-
-                        if offset + vl as usize > bytes_read {
-                            read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
-                            continue 'read;
-                        }
-                        value_offset = offset;
-                        offset += vl as usize;
-
-                        tables[number as usize].insert_without_log(BinKey::new(&chunk[key_offset..key_offset+kl as usize]), BinValue::new(&chunk[value_offset..offset]));
-                    }
-                    SET => {
-                        if offset + 2 > bytes_read {
-                            read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
-                            continue 'read;
-                        }
-                        number = (chunk[offset + 1] as u16) << 8 | (chunk[offset] as u16);
-                        offset += 2;
-
-                        if offset + number as usize + 1 > bytes_read {
-                            read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
-                            continue 'read;
-                        }
-                        kl = chunk[offset] as u32;
-                        offset += 1;
-                        if kl == 255 {
-                            if offset + 2 > bytes_read {
-                                read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
-                                continue 'read;
-                            }
-                            kl = (chunk[offset + 1] as u32) << 8 | (chunk[offset] as u32);
-                            offset += 2;
-                        }
-
-                        if offset + kl as usize + 2 /*for vl*/ > bytes_read {
-                            read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
-                            continue 'read;
-                        }
-                        key_offset = offset;
-                        offset += kl as usize;
-
-                        vl = (chunk[offset + 1] as u32) << 8 | (chunk[offset] as u32);
-                        offset += 2;
-                        if vl == 65535 {
-                            if offset + 4 > bytes_read {
-                                read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
-                                continue 'read;
-                            }
-                            vl = (chunk[offset + 3] as u32) << 24 | (chunk[offset + 2] as u32) << 16 | (chunk[offset + 1] as u32) << 8 | (chunk[offset] as u32);
-                            offset += 4;
-                        }
-
-                        if offset + vl as usize > bytes_read {
-                            read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
-                            continue 'read;
-                        }
-                        value_offset = offset;
-                        offset += vl as usize;
-
-                        tables[number as usize].set_without_log(BinKey::new(&chunk[key_offset..key_offset+kl as usize]), BinValue::new(&chunk[value_offset..offset]));
-                    }
-                    DELETE => {
-                        if offset + 2 > bytes_read {
-                            read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
-                            continue 'read;
-                        }
-                        number = (chunk[offset + 1] as u16) << 8 | (chunk[offset] as u16);
-                        offset += 2;
-
-                        if offset + number as usize + 1 > bytes_read {
-                            read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
-                            continue 'read;
-                        }
-                        kl = chunk[offset] as u32;
-                        offset += 1;
-                        if kl == 255 {
-                            if offset + 2 > bytes_read {
-                                read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
-                                continue 'read;
-                            }
-                            kl = (chunk[offset + 1] as u32) << 8 | (chunk[offset] as u32);
-                            offset += 2;
-                        }
-
-                        if offset + kl as usize > bytes_read {
-                            read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
-                            continue 'read;
-                        }
-                        key_offset = offset;
-                        offset += kl as usize;
-
-                        tables[number as usize].delete_without_log(&BinKey::new(&chunk[key_offset..key_offset+kl as usize]));
-                    }
-                    CREATE_TABLE_IN_MEMORY => {
-                        if offset + 2 > bytes_read {
-                            read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
-                            continue 'read;
-                        }
-                        // TODO: think about safe of pushing
-                        number = (chunk[offset + 1] as u16) << 8 | (chunk[offset] as u16);
-                        offset += 2;
-
-                        if offset + 1 > bytes_read {
-                            read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
-                            continue 'read;
-                        }
-                        
-                        is_it_logging = chunk[offset] != 0;
-                        offset += 1;
-                        
-                        if offset + 2 > bytes_read {
-                            read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
-                            continue 'read;
-                        } 
-                        
-                        name_len = (chunk[offset + 1] as u32) << 8 | (chunk[offset] as u32);
-                        offset += 2;
-
-                        if offset + name_len as usize > bytes_read {
-                            read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
-                            continue 'read;
-                        }
-                        name_offset = offset;
-                        offset += name_len as usize;
-                        name = vec![0; name_len as usize];
-                        name.copy_from_slice(&chunk[name_offset..offset]);
-                        let name = String::from_utf8(name).unwrap();
-
-                        if offset + 2 > bytes_read {
-                            read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
-                            continue 'read;
-                        }
-
-                        scheme_len = (chunk[offset + 1] as u16) << 8 | (chunk[offset] as u16);
-                        offset += 2;
-                        scheme_offset = offset;
-
-                        if offset + scheme_len as usize > bytes_read {
-                            read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
-                            continue 'read;
-                        }
-                        offset += scheme_len as usize;
-
-                        let user_scheme: &[u8];
-                        let scheme;
-                        if scheme_len == 0 {
-                            user_scheme = &[];
-                            scheme = Ok(empty_scheme());
-                        } else {
-                            user_scheme = &chunk[scheme_offset..offset];
-                            scheme = scheme_from_bytes(user_scheme);
-                            if scheme.is_err() {
-                                continue;
-                            }
-                        }
-
-                        Self::create_in_memory_table(storage.clone(), name, HashInMemoryIndex::new(), is_it_logging, scheme.unwrap(), user_scheme);
-                    }
-                    CREATE_TABLE_ON_DISK => {
-                        if offset + 2 > bytes_read {
-                            read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
-                            continue 'read;
-                        }
-                        number = (chunk[offset + 1] as u16) << 8 | (chunk[offset] as u16);
-                        offset += 2;
-
-                        if offset + 2 > bytes_read {
-                            read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
-                            continue 'read;
-                        }
-
-                        name_len = (chunk[offset + 1] as u32) << 8 | (chunk[offset] as u32);
-                        offset += 2;
-
-                        if offset + name_len as usize > bytes_read {
-                            read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
-                            continue 'read;
-                        }
-                        name_offset = offset;
-                        offset += name_len as usize;
-                        name = vec![0; name_len as usize];
-                        name.copy_from_slice(&chunk[name_offset..offset]);
-                        let name = String::from_utf8(name).unwrap();
-
-                        if offset + 2 > bytes_read {
-                            read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
-                            continue 'read;
-                        }
-
-                        scheme_len = (chunk[offset + 1] as u16) << 8 | (chunk[offset] as u16);
-                        offset += 2;
-                        scheme_offset = offset;
-
-                        if offset + scheme_len as usize > bytes_read {
-                            read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
-                            continue 'read;
-                        }
-                        offset += scheme_len as usize;
-
-                        let user_scheme: &[u8];
-                        let scheme;
-                        if scheme_len == 0 {
-                            user_scheme = &[];
-                            scheme = Ok(empty_scheme());
-                        } else {
-                            user_scheme = &chunk[scheme_offset..offset];
-                            scheme = scheme_from_bytes(user_scheme);
-                            if scheme.is_err() {
-                                continue;
-                            }
-                        }
-
-                        Self::create_on_disk_table(storage.clone(), name, HashInMemoryIndex::new(), scheme.unwrap(), user_scheme);
-                    }
-                    CREATE_TABLE_CACHE => {
-                        if offset + 2 > bytes_read {
-                            read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
-                            continue 'read;
-                        }
-                        number = (chunk[offset + 1] as u16) << 8 | (chunk[offset] as u16);
-                        offset += 2;
-
-                        if offset + 1 > bytes_read {
-                            read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
-                            continue 'read;
-                        }
-
-                        is_it_logging = chunk[offset] != 0;
-                        offset += 1;
-
-                        if offset + 8 > bytes_read {
-                            read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
-                            continue 'read;
-                        }
-
-                        cache_duration = (chunk[offset + 7] as u64) << 56 | (chunk[offset + 6] as u64) << 48 | (chunk[offset + 5] as u64) << 40 | (chunk[offset + 4] as u64) << 32 | (chunk[offset + 3] as u64) << 24 | (chunk[offset + 2] as u64) << 16 | (chunk[offset + 1] as u64) << 8 | (chunk[offset] as u64);
-                        offset += 8;
-
-                        if offset + 2 > bytes_read {
-                            read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
-                            continue 'read;
-                        }
-
-                        name_len = (chunk[offset + 1] as u32) << 8 | (chunk[offset] as u32);
-                        offset += 2;
-
-                        if offset + name_len as usize > bytes_read {
-                            read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
-                            continue 'read;
-                        }
-                        name_offset = offset;
-                        offset += name_len as usize;
-                        name = vec![0; name_len as usize];
-                        name.copy_from_slice(&chunk[name_offset..offset]);
-                        let name = String::from_utf8(name).unwrap();
-
-                        if offset + 2 > bytes_read {
-                            read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
-                            continue 'read;
-                        }
-
-                        scheme_len = (chunk[offset + 1] as u16) << 8 | (chunk[offset] as u16);
-                        offset += 2;
-                        scheme_offset = offset;
-
-                        if offset + scheme_len as usize > bytes_read {
-                            read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
-                            continue 'read;
-                        }
-                        offset += scheme_len as usize;
-
-                        let user_scheme: &[u8];
-                        let scheme;
-                        if scheme_len == 0 {
-                            user_scheme = &[];
-                            scheme = Ok(empty_scheme());
-                        } else {
-                            user_scheme = &chunk[scheme_offset..offset];
-                            scheme = scheme_from_bytes(user_scheme);
-                            if scheme.is_err() {
-                                continue;
-                            }
-                        }
-
-                        Self::create_cache_table(storage.clone(), name, HashInMemoryIndex::new(), cache_duration, is_it_logging, scheme.unwrap(), user_scheme);
-                    }
-                    _ => {
-                        panic!("Unknown action was detected while reading the log: {}", action);
-                    }
-                };
+            let file_len = input.metadata().unwrap().len();
+            let mut chunk = [0u8; 64 * 1024];
+            let mut total_read = 0;
+            let mut offset_last_record = 0;
+            let mut offset;
+            let mut start_offset = 0;
+            let mut action;
+            let mut kl;
+            let mut key_offset;
+            let mut name_len;
+            let mut name_offset;
+            let mut name;
+            let mut is_it_logging;
+            let mut vl;
+            let mut value_offset;
+            let mut number;
+            let mut cache_duration;
+            let mut scheme_len;
+            let mut scheme_offset;
+            let tables;
+            unsafe {
+                tables = (&mut *storage.tables.get()) as &mut Vec<Box<dyn Table>>;
             }
+
+            'read: loop {
+                if total_read == file_len {
+                    break;
+                }
+                let mut bytes_read = input.read(&mut chunk[offset_last_record..]).expect("Failed to read");
+                if bytes_read == 0 {
+                    break;
+                }
+
+
+                bytes_read += offset_last_record;
+                offset = 0;
+                total_read += bytes_read as u64;
+
+                loop {
+                    if offset + 1 > bytes_read {
+                        read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
+                        continue 'read;
+                    }
+                    start_offset = offset;
+                    action = chunk[offset];
+                    offset += 1;
+                    if action == 4 {
+                        panic!();
+                    }
+                    match action {
+                        INSERT => {
+                            if offset + 2 > bytes_read {
+                                read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
+                                continue 'read;
+                            }
+                            number = (chunk[offset + 1] as u16) << 8 | (chunk[offset] as u16);
+                            offset += 2;
+
+                            if offset + number as usize + 1 > bytes_read {
+                                read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
+                                continue 'read;
+                            }
+                            kl = chunk[offset] as u32;
+                            offset += 1;
+                            if kl == 255 {
+                                if offset + 2 > bytes_read {
+                                    read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
+                                    continue 'read;
+                                }
+                                kl = (chunk[offset + 1] as u32) << 8 | (chunk[offset] as u32);
+                                offset += 2;
+                            }
+
+                            if offset + kl as usize + 2 /*for vl*/ > bytes_read {
+                                read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
+                                continue 'read;
+                            }
+                            key_offset = offset;
+                            offset += kl as usize;
+
+                            vl = (chunk[offset + 1] as u32) << 8 | (chunk[offset] as u32);
+                            offset += 2;
+                            if vl == 65535 {
+                                if offset + 4 > bytes_read {
+                                    read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
+                                    continue 'read;
+                                }
+                                vl = (chunk[offset + 3] as u32) << 24 | (chunk[offset + 2] as u32) << 16 | (chunk[offset + 1] as u32) << 8 | (chunk[offset] as u32);
+                                offset += 4;
+                            }
+
+                            if offset + vl as usize > bytes_read {
+                                read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
+                                continue 'read;
+                            }
+                            value_offset = offset;
+                            offset += vl as usize;
+
+                            tables[number as usize].insert_without_log(BinKey::new(&chunk[key_offset..key_offset+kl as usize]), BinValue::new(&chunk[value_offset..offset]));
+                        }
+                        SET => {
+                            if offset + 2 > bytes_read {
+                                read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
+                                continue 'read;
+                            }
+                            number = (chunk[offset + 1] as u16) << 8 | (chunk[offset] as u16);
+                            offset += 2;
+
+                            if offset + number as usize + 1 > bytes_read {
+                                read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
+                                continue 'read;
+                            }
+                            kl = chunk[offset] as u32;
+                            offset += 1;
+                            if kl == 255 {
+                                if offset + 2 > bytes_read {
+                                    read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
+                                    continue 'read;
+                                }
+                                kl = (chunk[offset + 1] as u32) << 8 | (chunk[offset] as u32);
+                                offset += 2;
+                            }
+
+                            if offset + kl as usize + 2 /*for vl*/ > bytes_read {
+                                read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
+                                continue 'read;
+                            }
+                            key_offset = offset;
+                            offset += kl as usize;
+
+                            vl = (chunk[offset + 1] as u32) << 8 | (chunk[offset] as u32);
+                            offset += 2;
+                            if vl == 65535 {
+                                if offset + 4 > bytes_read {
+                                    read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
+                                    continue 'read;
+                                }
+                                vl = (chunk[offset + 3] as u32) << 24 | (chunk[offset + 2] as u32) << 16 | (chunk[offset + 1] as u32) << 8 | (chunk[offset] as u32);
+                                offset += 4;
+                            }
+
+                            if offset + vl as usize > bytes_read {
+                                read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
+                                continue 'read;
+                            }
+                            value_offset = offset;
+                            offset += vl as usize;
+
+                            tables[number as usize].set_without_log(BinKey::new(&chunk[key_offset..key_offset+kl as usize]), BinValue::new(&chunk[value_offset..offset]));
+                        }
+                        DELETE => {
+                            if offset + 2 > bytes_read {
+                                read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
+                                continue 'read;
+                            }
+                            number = (chunk[offset + 1] as u16) << 8 | (chunk[offset] as u16);
+                            offset += 2;
+
+                            if offset + number as usize + 1 > bytes_read {
+                                read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
+                                continue 'read;
+                            }
+                            kl = chunk[offset] as u32;
+                            offset += 1;
+                            if kl == 255 {
+                                if offset + 2 > bytes_read {
+                                    read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
+                                    continue 'read;
+                                }
+                                kl = (chunk[offset + 1] as u32) << 8 | (chunk[offset] as u32);
+                                offset += 2;
+                            }
+
+                            if offset + kl as usize > bytes_read {
+                                read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
+                                continue 'read;
+                            }
+                            key_offset = offset;
+                            offset += kl as usize;
+
+                            tables[number as usize].delete_without_log(&BinKey::new(&chunk[key_offset..key_offset+kl as usize]));
+                        }
+                        CREATE_TABLE_IN_MEMORY => {
+                            if offset + 2 > bytes_read {
+                                read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
+                                continue 'read;
+                            }
+                            // TODO: think about safe of pushing
+                            number = (chunk[offset + 1] as u16) << 8 | (chunk[offset] as u16);
+                            offset += 2;
+
+                            if offset + 1 > bytes_read {
+                                read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
+                                continue 'read;
+                            }
+
+                            is_it_logging = chunk[offset] != 0;
+                            offset += 1;
+
+                            if offset + 2 > bytes_read {
+                                read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
+                                continue 'read;
+                            }
+
+                            name_len = (chunk[offset + 1] as u32) << 8 | (chunk[offset] as u32);
+                            offset += 2;
+
+                            if offset + name_len as usize > bytes_read {
+                                read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
+                                continue 'read;
+                            }
+                            name_offset = offset;
+                            offset += name_len as usize;
+                            name = vec![0; name_len as usize];
+                            name.copy_from_slice(&chunk[name_offset..offset]);
+                            let name = String::from_utf8(name).unwrap();
+
+                            if offset + 2 > bytes_read {
+                                read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
+                                continue 'read;
+                            }
+
+                            scheme_len = (chunk[offset + 1] as u16) << 8 | (chunk[offset] as u16);
+                            offset += 2;
+                            scheme_offset = offset;
+
+                            if offset + scheme_len as usize > bytes_read {
+                                read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
+                                continue 'read;
+                            }
+                            offset += scheme_len as usize;
+
+                            let user_scheme: &[u8];
+                            let scheme;
+                            if scheme_len == 0 {
+                                user_scheme = &[];
+                                scheme = Ok(empty_scheme());
+                            } else {
+                                user_scheme = &chunk[scheme_offset..offset];
+                                scheme = scheme_from_bytes(user_scheme);
+                                if scheme.is_err() {
+                                    continue;
+                                }
+                            }
+
+                            Self::create_in_memory_table(storage.clone(), name, HashInMemoryIndex::new(), is_it_logging, scheme.unwrap(), user_scheme);
+                        }
+                        CREATE_TABLE_ON_DISK => {
+                            if offset + 2 > bytes_read {
+                                read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
+                                continue 'read;
+                            }
+                            number = (chunk[offset + 1] as u16) << 8 | (chunk[offset] as u16);
+                            offset += 2;
+
+                            if offset + 2 > bytes_read {
+                                read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
+                                continue 'read;
+                            }
+
+                            name_len = (chunk[offset + 1] as u32) << 8 | (chunk[offset] as u32);
+                            offset += 2;
+
+                            if offset + name_len as usize > bytes_read {
+                                read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
+                                continue 'read;
+                            }
+                            name_offset = offset;
+                            offset += name_len as usize;
+                            name = vec![0; name_len as usize];
+                            name.copy_from_slice(&chunk[name_offset..offset]);
+                            let name = String::from_utf8(name).unwrap();
+
+                            if offset + 2 > bytes_read {
+                                read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
+                                continue 'read;
+                            }
+
+                            scheme_len = (chunk[offset + 1] as u16) << 8 | (chunk[offset] as u16);
+                            offset += 2;
+                            scheme_offset = offset;
+
+                            if offset + scheme_len as usize > bytes_read {
+                                read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
+                                continue 'read;
+                            }
+                            offset += scheme_len as usize;
+
+                            let user_scheme: &[u8];
+                            let scheme;
+                            if scheme_len == 0 {
+                                user_scheme = &[];
+                                scheme = Ok(empty_scheme());
+                            } else {
+                                user_scheme = &chunk[scheme_offset..offset];
+                                scheme = scheme_from_bytes(user_scheme);
+                                if scheme.is_err() {
+                                    continue;
+                                }
+                            }
+
+                            Self::create_on_disk_table(storage.clone(), name, HashInMemoryIndex::new(), scheme.unwrap(), user_scheme);
+                        }
+                        CREATE_TABLE_CACHE => {
+                            if offset + 2 > bytes_read {
+                                read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
+                                continue 'read;
+                            }
+                            number = (chunk[offset + 1] as u16) << 8 | (chunk[offset] as u16);
+                            offset += 2;
+
+                            if offset + 1 > bytes_read {
+                                read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
+                                continue 'read;
+                            }
+
+                            is_it_logging = chunk[offset] != 0;
+                            offset += 1;
+
+                            if offset + 8 > bytes_read {
+                                read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
+                                continue 'read;
+                            }
+
+                            cache_duration = (chunk[offset + 7] as u64) << 56 | (chunk[offset + 6] as u64) << 48 | (chunk[offset + 5] as u64) << 40 | (chunk[offset + 4] as u64) << 32 | (chunk[offset + 3] as u64) << 24 | (chunk[offset + 2] as u64) << 16 | (chunk[offset + 1] as u64) << 8 | (chunk[offset] as u64);
+                            offset += 8;
+
+                            if offset + 2 > bytes_read {
+                                read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
+                                continue 'read;
+                            }
+
+                            name_len = (chunk[offset + 1] as u32) << 8 | (chunk[offset] as u32);
+                            offset += 2;
+
+                            if offset + name_len as usize > bytes_read {
+                                read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
+                                continue 'read;
+                            }
+                            name_offset = offset;
+                            offset += name_len as usize;
+                            name = vec![0; name_len as usize];
+                            name.copy_from_slice(&chunk[name_offset..offset]);
+                            let name = String::from_utf8(name).unwrap();
+
+                            if offset + 2 > bytes_read {
+                                read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
+                                continue 'read;
+                            }
+
+                            scheme_len = (chunk[offset + 1] as u16) << 8 | (chunk[offset] as u16);
+                            offset += 2;
+                            scheme_offset = offset;
+
+                            if offset + scheme_len as usize > bytes_read {
+                                read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
+                                continue 'read;
+                            }
+                            offset += scheme_len as usize;
+
+                            let user_scheme: &[u8];
+                            let scheme;
+                            if scheme_len == 0 {
+                                user_scheme = &[];
+                                scheme = Ok(empty_scheme());
+                            } else {
+                                user_scheme = &chunk[scheme_offset..offset];
+                                scheme = scheme_from_bytes(user_scheme);
+                                if scheme.is_err() {
+                                    continue;
+                                }
+                            }
+
+                            Self::create_cache_table(storage.clone(), name, HashInMemoryIndex::new(), cache_duration, is_it_logging, scheme.unwrap(), user_scheme);
+                        }
+                        _ => {
+                            panic!("Unknown action was detected while reading the log: {}", action);
+                        }
+                    };
+                }
+            }
+
+            log_number += 1;
         }
     }
 }

@@ -5,8 +5,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32};
 use std::sync::atomic::Ordering::SeqCst;
 use crate::bin_types::{BinKey, BinValue};
-use crate::constants;
 use crate::constants::actions;
+use crate::error;
 use crate::index::Index;
 use crate::scheme::scheme;
 use crate::writers::{LogWriter, SizedWriter};
@@ -14,6 +14,7 @@ use crate::table::table::{Table, TableEngine};
 use crate::utils::fastbytes::uint;
 
 pub struct InMemoryTable<I: Index<BinKey, BinValue>> {
+    persistence_dir_path: PathBuf,
     number: u16,
     pub index: I,
     number_of_dumps: Arc<AtomicU32>,
@@ -27,6 +28,7 @@ pub struct InMemoryTable<I: Index<BinKey, BinValue>> {
 
 impl<I: Index<BinKey, BinValue>> InMemoryTable<I> {
     pub fn new(
+        persistence_dir_path: PathBuf,
         number: u16,
         index: I,
         name: String,
@@ -37,8 +39,9 @@ impl<I: Index<BinKey, BinValue>> InMemoryTable<I> {
     ) -> InMemoryTable<I> {
 
         InMemoryTable {
+            persistence_dir_path,
             number,
-            index: index,
+            index,
             was_dumped: AtomicBool::new(false),
             number_of_dumps,
             name,
@@ -138,12 +141,12 @@ impl<I: Index<BinKey, BinValue>> Table for InMemoryTable<I> {
 
         let number = self.number_of_dumps.load(SeqCst);
         if self.was_dumped.load(SeqCst) == false {
-            let dir_path: PathBuf = ["..", constants::paths::PERSISTENCE_DIR, &self.name].iter().collect();
+            let dir_path: PathBuf = self.persistence_dir_path.join(self.name.clone());
             let _ = DirBuilder::new().recursive(true).create(dir_path);
             self.was_dumped.store(true, SeqCst);
         }
         let file_name = format!("{}{number}.dump", self.name);
-        let path: PathBuf = ["..", constants::paths::PERSISTENCE_DIR, &self.name, &file_name].iter().collect();
+        let path: PathBuf = self.persistence_dir_path.join(self.name.clone()).join(file_name);
 
         // TODO: maybe remove old dumps?
         let output = File::create(path.clone()).expect(&*format!("failed to create file with path {}", path.to_string_lossy()));
@@ -183,11 +186,11 @@ impl<I: Index<BinKey, BinValue>> Table for InMemoryTable<I> {
         }
 
         let file_name = format!("{}{}.dump", self.name, number_of_dumps);
-        let path: PathBuf = ["..", constants::paths::PERSISTENCE_DIR, &self.name, &file_name].iter().collect();
+        let path: PathBuf = self.persistence_dir_path.join(self.name.clone()).join(file_name.clone());
 
         let mut input = File::open(path.clone()).expect(&*format!("Failed to open file with path: {}", path.to_string_lossy()));
         let file_len = input.metadata().unwrap().len();
-        if (file_len < 8) {
+        if file_len < 8 {
             panic!("file len is less than 8!");
         }
         let mut chunk = [0u8; 64 * 1024];
@@ -206,11 +209,11 @@ impl<I: Index<BinKey, BinValue>> Table for InMemoryTable<I> {
         let mut vl;
 
         'read: loop {
-            if (total_read == file_len) {
+            if total_read == file_len {
                 break;
             }
             let mut bytes_read = input.read(&mut chunk[offset_last_record..]).expect("Failed to read");
-            if (bytes_read == 0) {
+            if bytes_read == 0 {
                 break;
             }
 
@@ -220,15 +223,15 @@ impl<I: Index<BinKey, BinValue>> Table for InMemoryTable<I> {
             total_read += bytes_read as u64;
 
             loop {
-                if (offset + 1 > bytes_read) {
+                if offset + 1 > bytes_read {
                     read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
                     continue 'read;
                 }
                 start_offset = offset;
                 kl = chunk[offset] as u32;
                 offset += 1;
-                if (kl == 255) {
-                    if (offset + 2 > bytes_read) {
+                if kl == 255 {
+                    if offset + 2 > bytes_read {
                         read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
                         continue 'read;
                     }
@@ -236,7 +239,7 @@ impl<I: Index<BinKey, BinValue>> Table for InMemoryTable<I> {
                     offset += 2;
                 }
 
-                if (offset + kl as usize + 2 /*for vl*/ > bytes_read) {
+                if offset + kl as usize + 2 /*for vl*/ > bytes_read {
                     read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
                     continue 'read;
                 }
@@ -245,8 +248,8 @@ impl<I: Index<BinKey, BinValue>> Table for InMemoryTable<I> {
 
                 vl = (chunk[offset + 1] as u32) << 8 | (chunk[offset] as u32);
                 offset += 2;
-                if (vl == 65535) {
-                    if (offset + 4 > bytes_read) {
+                if vl == 65535 {
+                    if offset + 4 > bytes_read {
                         read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
                         continue 'read;
                     }
@@ -254,7 +257,7 @@ impl<I: Index<BinKey, BinValue>> Table for InMemoryTable<I> {
                     offset += 4;
                 }
 
-                if (offset + vl as usize > bytes_read) {
+                if offset + vl as usize > bytes_read {
                     read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
                     continue 'read;
                 }
@@ -267,8 +270,8 @@ impl<I: Index<BinKey, BinValue>> Table for InMemoryTable<I> {
             }
         }
 
-        if (total_records_read < all_count) {
-            println!("Bad dump read! Lost {} records in dump file with name: {}", all_count - total_records_read, file_name);
+        if total_records_read < all_count {
+            error!("Bad dump read! Lost {} records in dump file with name: {}", all_count - total_records_read, file_name);
         }
     }
 
