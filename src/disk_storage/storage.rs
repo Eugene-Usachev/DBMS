@@ -7,6 +7,7 @@ use std::{
         atomic::AtomicU64
     }
 };
+use std::fs::OpenOptions;
 use std::path::PathBuf;
 use ahash::{HashMap, HashMapExt, RandomState};
 use positioned_io::{ReadAt};
@@ -141,9 +142,9 @@ impl<I: Index<BinKey, (u64, u64)>> DiskStorage<I> {
         let mut atomic_indexes = Vec::with_capacity(self.size);
 
         for i in 0..self.size {
-            files.push(Arc::new(Mutex::new(SizedWriter::new_with_capacity(File::open(format!("{:?}/{}", path.clone(), i)).unwrap(), BUFFER_SIZE))));
-            read_files.push(Arc::new(RwLock::new(File::open(format!("{:?}/{}", path.clone(), i)).unwrap())));
-            files_for_need_to_delete.push(Arc::new(Mutex::new(SizedWriter::new_with_capacity(File::open(format!("{:?}/{}D", path.clone(), i)).unwrap(), DELETE_BUFFER_SIZE))));
+            files.push(Arc::new(Mutex::new(SizedWriter::new_with_capacity(File::open(path.clone().join(format!("{i}.bin"))).unwrap(), BUFFER_SIZE))));
+            read_files.push(Arc::new(RwLock::new(File::open(path.clone().join(format!("{i}.bin"))).unwrap())));
+            files_for_need_to_delete.push(Arc::new(Mutex::new(SizedWriter::new_with_capacity(File::open(path.clone().join(format!("{i}.bin"))).unwrap(), DELETE_BUFFER_SIZE))));
             atomic_indexes.push(Arc::new(AtomicU64::new(0)));
         }
 
@@ -358,11 +359,18 @@ impl<I: Index<BinKey, (u64, u64)>> DiskStorage<I> {
             let mut read_files = Vec::with_capacity(size);
             let mut files_for_need_to_delete = Vec::with_capacity(size);
             let mut atomic_indexes = Vec::with_capacity(size);
-            std::fs::DirBuilder::new().create(path.clone()).unwrap();
+            // TODO handle error
+            std::fs::DirBuilder::new().recursive(true).create(path.clone()).unwrap();
+
             for i in 0..size {
-                files.push(Arc::new(Mutex::new(SizedWriter::new_with_capacity(File::create(format!("{:?}/{}", path.clone(), i)).unwrap(), BUFFER_SIZE))));
-                read_files.push(Arc::new(RwLock::new(File::open(format!("{:?}/{}", path.clone(), i)).unwrap())));
-                files_for_need_to_delete.push(Arc::new(Mutex::new(SizedWriter::new_with_capacity(File::create(format!("{:?}/{}D", path.clone(), i)).unwrap(), DELETE_BUFFER_SIZE))));
+                // TODO handle error
+                let write_file = OpenOptions::new()
+                    .append(true)
+                    .create(true)
+                    .open(path.clone().join(format!("{i}.bin"))).expect("[Error] Failed to open file");
+                files.push(Arc::new(Mutex::new(SizedWriter::new_with_capacity(write_file, BUFFER_SIZE))));
+                read_files.push(Arc::new(RwLock::new(File::open(path.clone().join(format!("{i}.bin"))).unwrap())));
+                files_for_need_to_delete.push(Arc::new(Mutex::new(SizedWriter::new_with_capacity(File::create(path.clone().join(format!("{i}D.bin"))).unwrap(), DELETE_BUFFER_SIZE))));
                 atomic_indexes.push(Arc::new(AtomicU64::new(0)));
             }
 

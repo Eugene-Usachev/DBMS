@@ -126,17 +126,18 @@ impl<'a, S: Stream> BufConnection<S> {
         }
     }
 
+    /// read request returns status and is a request reading.
     #[inline(always)]
-    pub fn read_request(&mut self) -> Status {
+    pub fn read_request(&mut self) -> (Status, bool) {
         let mut reader = &mut self.reader;
         reader.write_offset = 0;
-        let status = Self::read_more(&mut reader, 4);
+        let status = Self::read_more(&mut reader, 5);
         if status != Status::Ok {
-            return status;
+            return (status, false);
         }
-        reader.request_size = uint::u32(&reader.buf[0..4]) as usize - 4;
-        reader.read_offset = 4;
-        return Status::Ok;
+        reader.request_size = uint::u32(&reader.buf[0..4]) as usize;
+        reader.read_offset = 5;
+        return (Status::Ok, reader.buf[4] == 1);
     }
 
     #[inline(always)]

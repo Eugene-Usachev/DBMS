@@ -20,6 +20,7 @@ use crate::server::reactions::table::{create_table_cache, create_table_in_memory
 use crate::server::reactions::work_with_tables::{delete, get, get_field, get_fields, insert, set};
 use crate::stream::Stream;
 use crate::utils::fastbytes::uint;
+use crate::utils::read_more;
 use crate::writers::LogWriter;
 
 pub struct Server {
@@ -38,14 +39,6 @@ pub struct Server {
     pub shard_metadata_file_path: PathBuf,
 
     node: Node
-}
-
-#[inline(always)]
-fn read_more(chunk: &mut [u8], start_offset: usize, bytes_read: usize, offset_last_record: &mut usize) {
-    let slice_to_copy = &mut Vec::with_capacity(0);
-    chunk[start_offset..bytes_read].clone_into(slice_to_copy);
-    *offset_last_record = bytes_read - start_offset;
-    chunk[0..*offset_last_record].copy_from_slice(slice_to_copy);
 }
 
 impl Server {
@@ -274,6 +267,7 @@ impl Server {
     #[inline(always)]
     fn handle_client<S: Stream>(server: Arc<Server>, storage: Arc<Storage>, mut connection: BufConnection<S>) {
         let mut status;
+        let mut is_reading;
         if server.password.len() > 0 {
             let mut buf = vec![0;server.password.len()];
             let reader = &mut connection.reader;
@@ -292,7 +286,7 @@ impl Server {
 
         let mut message;
         loop {
-            status = connection.read_request();
+            (status, is_reading) = connection.read_request();
             if status != Status::Ok {
                 connection.close().expect("Failed to close connection");
                 return;

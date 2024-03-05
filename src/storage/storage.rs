@@ -17,6 +17,7 @@ use crate::table::cache::CacheTable;
 use crate::table::in_memory::InMemoryTable;
 use crate::table::on_disk::OnDiskTable;
 use crate::utils::fastbytes::uint;
+use crate::utils::read_more;
 use crate::writers::{LogFile};
 
 pub static NOW_MINUTES: AtomicU64 = AtomicU64::new(0);
@@ -396,13 +397,6 @@ impl Storage {
     }
 
     pub fn rise(storage: Arc<Self>) {
-        #[inline(always)]
-        fn read_more(buf: &mut [u8], start_offset: usize, bytes_read: usize, offset_last_record: &mut usize) {
-            let slice_to_copy = &mut Vec::with_capacity(0);
-            buf[start_offset..bytes_read].clone_into(slice_to_copy);
-            *offset_last_record = bytes_read - start_offset;
-            buf[0..*offset_last_record].copy_from_slice(slice_to_copy);
-        }
         let file_ = File::open(storage.table_configs_file_path.clone());
         if file_.is_ok() {
             let mut file = file_.unwrap();
@@ -674,16 +668,6 @@ impl Storage {
     }
 
     pub fn read_log(storage: Arc<Self>) {
-        // TODO: now we read one dump and one log. But when we start dumping, we create new log file.
-        // So, if the program was down, while we was dumping, we will have two log files!
-        #[inline(always)]
-        fn read_more(chunk: &mut [u8], start_offset: usize, bytes_read: usize, offset_last_record: &mut usize) {
-            let slice_to_copy = &mut Vec::with_capacity(0);
-            chunk[start_offset..bytes_read].clone_into(slice_to_copy);
-            *offset_last_record = bytes_read - start_offset;
-            chunk[0..*offset_last_record].copy_from_slice(slice_to_copy);
-        }
-
         let mut log_number = Self::get_log_file_number(storage.number_of_dumps_file_path.clone());
 
         loop {
@@ -721,7 +705,7 @@ impl Storage {
             let mut scheme_offset;
             let tables;
             unsafe {
-                tables = (&mut *storage.tables.get()) as &mut Vec<Box<dyn Table>>;
+                tables = (&mut *storage.tables.get());
             }
 
             'read: loop {

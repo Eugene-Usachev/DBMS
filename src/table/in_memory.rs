@@ -12,6 +12,7 @@ use crate::scheme::scheme;
 use crate::writers::{LogWriter, SizedWriter};
 use crate::table::table::{Table, TableEngine};
 use crate::utils::fastbytes::uint;
+use crate::utils::read_more;
 
 pub struct InMemoryTable<I: Index<BinKey, BinValue>> {
     persistence_dir_path: PathBuf,
@@ -172,14 +173,6 @@ impl<I: Index<BinKey, BinValue>> Table for InMemoryTable<I> {
     }
 
     fn rise(&mut self) {
-        #[inline(always)]
-        fn read_more(chunk: &mut [u8], start_offset: usize, bytes_read: usize, offset_last_record: &mut usize) {
-            let slice_to_copy = &mut Vec::with_capacity(0);
-            chunk[start_offset..bytes_read].clone_into(slice_to_copy);
-            *offset_last_record = bytes_read - start_offset;
-            chunk[0..*offset_last_record].copy_from_slice(slice_to_copy);
-        }
-
         let number_of_dumps = self.number_of_dumps.load(SeqCst);
         if number_of_dumps == 0 {
             return;
