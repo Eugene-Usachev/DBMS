@@ -14,12 +14,12 @@ pub fn get<S: Stream>(connection: &mut BufConnection<S>, storage: &Arc<Storage>,
         tables = &*storage.tables.get();
     }
     return match tables.get(uint::u16(&message[1..3]) as usize) {
-        Some(table) => unsafe {
+        Some(table) => {
             let res = table.get(&BinKey::new(&message[3..]));
             if res.is_none() {
                 connection.write_message(&[actions::NOT_FOUND]);
             }
-            let value = res.unwrap_unchecked();
+            let value = unsafe { res.unwrap_unchecked() };
             connection.write_message_and_status(value.deref(), actions::DONE)
         }
         None => {
@@ -35,13 +35,13 @@ pub fn get_field<S: Stream>(connection: &mut BufConnection<S>, storage: &Arc<Sto
         tables = &*storage.tables.get();
     }
     return match tables.get(uint::u16(&message[1..3]) as usize) {
-        Some(table) => unsafe {
+        Some(table) => {
             let field = uint::u16(&message[3..5]);
             let res = table.get_field(&BinKey::new(&message[5..]), field as usize);
             if res.is_none() {
                 return connection.write_message(&[actions::NOT_FOUND]);
             }
-            let value = res.unwrap_unchecked();
+            let value = unsafe { res.unwrap_unchecked() };
             connection.write_message_and_status(&value, actions::DONE)
         }
         None => {
@@ -57,7 +57,7 @@ pub fn get_fields<S: Stream>(connection: &mut BufConnection<S>, storage: &Arc<St
         tables = &*storage.tables.get();
     }
     return match tables.get(uint::u16(&message[1..3]) as usize) {
-        Some(table) => unsafe {
+        Some(table) => {
             let number_of_fields = uint::u16(&message[3..5]) as usize;
             let mut fields = Vec::with_capacity(number_of_fields);
             for i in 0..number_of_fields {
@@ -67,7 +67,7 @@ pub fn get_fields<S: Stream>(connection: &mut BufConnection<S>, storage: &Arc<St
             if res.is_none() {
                 return connection.write_message(&[actions::NOT_FOUND])
             }
-            let value = res.unwrap_unchecked();
+            let value = unsafe { res.unwrap_unchecked() };
             connection.write_message_and_status(&value, actions::DONE)
         }
         None => {
