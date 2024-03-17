@@ -1,6 +1,6 @@
 #[cfg(test)]
 use std::fs;
-use std::sync::Arc;
+use std::mem;
 mod index;
 
 mod bin_types;
@@ -26,10 +26,11 @@ mod node;
 #[cfg(not(test))]
 #[tokio::main]
 async fn main() {
-    let storage = Arc::new(Storage::new(["..", constants::paths::PERSISTENCE_DIR].iter().collect()));
-    Storage::init(storage.clone());
+    let storage = Storage::new(["..", constants::paths::PERSISTENCE_DIR].iter().collect());
+    let storage_static = unsafe { mem::transmute::<&Storage, &'static Storage>(&storage) };
+    storage_static.init();
 
-    server::server::Server::new(storage).run();
+    server::server::Server::new(storage_static).run();
 }
 
 #[test]
@@ -40,15 +41,15 @@ fn main() {
         .unwrap()
         .block_on(async {
             info!("Starting test");
-            let storage = Arc::new(Storage::new(["test_data"].iter().collect()));
+            let storage = Storage::new(["test_data"].iter().collect());
             info!("Storage created");
-            Storage::init(storage.clone());
+            Storage::init(&storage);
             info!("Storage initialized");
-            crud(storage.clone());
-            persistence(storage.clone());
+            crud(&storage);
+            persistence(&storage);
 
             println!();
-            crud_bench(storage.clone());
+            crud_bench(&storage);
 
             fs::remove_dir_all("test_data").unwrap();
         });

@@ -14,7 +14,7 @@ use crate::writers::LogWriter;
 ///
 /// Next it creates new two tables and inserts and deletes data. Then it dumps and inserts and deletes some new data.
 /// After it deletes both tables and creates them again. Then rises it and read the log. And check for all data.
-pub fn persistence(storage: Arc<Storage>) {
+pub fn persistence(storage: &Storage) {
     test_dump(storage.clone());
     test_dump_and_log(storage.clone());
 }

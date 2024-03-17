@@ -9,7 +9,7 @@ use crate::success;
 use crate::writers::LogWriter;
 
 #[cfg(test)]
-pub fn crud(storage: Arc<Storage>) {
+pub fn crud(storage: &Storage) {
     let number = Storage::create_in_memory_table(storage.clone(), "crud".to_string(), HashInMemoryIndex::new(), false, empty_scheme(), &[]);
     let mut keys = Vec::with_capacity(10000);
     let mut values = Vec::with_capacity(10000);

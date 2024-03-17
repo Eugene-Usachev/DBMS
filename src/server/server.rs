@@ -24,7 +24,7 @@ use crate::utils::read_more;
 use crate::writers::LogWriter;
 
 pub struct Server {
-    storage: Arc<Storage>,
+    storage: &'static Storage,
     is_running: bool,
 
     password: String,
@@ -42,7 +42,7 @@ pub struct Server {
 }
 
 impl Server {
-    pub fn new(storage: Arc<Storage>) -> Self {
+    pub fn new(storage: &'static Storage) -> Self {
         let config = Config::new();
         let hierarchy_file_path: PathBuf = storage.persistence_dir_path.join("hierarchy.bin");
         let shard_metadata_file_path: PathBuf = storage.persistence_dir_path.join("shard metadata.bin");
@@ -265,7 +265,7 @@ impl Server {
     }
 
     #[inline(always)]
-    fn handle_client<S: Stream>(server: Arc<Server>, storage: Arc<Storage>, mut connection: BufConnection<S>) {
+    fn handle_client<S: Stream>(server: Arc<Server>, storage: &'static Storage, mut connection: BufConnection<S>) {
         let mut status;
         let mut is_reading;
         if server.password.len() > 0 {
@@ -304,7 +304,7 @@ impl Server {
                     return;
                 }
 
-                status = Self::handle_message(&mut connection, &server, &storage, message, &mut log_writer);
+                status = Self::handle_message(&mut connection, &server, storage, message, &mut log_writer);
                 if status != Status::Ok {
                     connection.close().expect("Failed to close connection");
                     return;
@@ -314,7 +314,7 @@ impl Server {
     }
 
     #[inline(always)]
-    fn handle_message<S: Stream>(connection: &mut BufConnection<S>, server: &Arc<Server>, storage: &Arc<Storage>, message: &[u8], log_writer: &mut LogWriter) -> Status {
+    fn handle_message<S: Stream>(connection: &mut BufConnection<S>, server: &Arc<Server>, storage: &'static Storage, message: &[u8], log_writer: &mut LogWriter) -> Status {
         return match message[0] {
             actions::PING => ping(connection),
             actions::GET_SHARD_METADATA => get_shard_metadata(connection, server),

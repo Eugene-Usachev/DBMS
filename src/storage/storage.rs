@@ -46,9 +46,6 @@ pub struct Storage {
     pub dump_interval: u32,
 }
 
-unsafe impl Send for Storage {}
-unsafe impl Sync for Storage {}
-
 impl Storage {
     pub fn new(persistence_dir_path: PathBuf) -> Self {
         std::fs::create_dir_all(&persistence_dir_path).expect("[Error] Failed to create the persistence directory");
@@ -108,43 +105,42 @@ impl Storage {
         }
     }
 
-    pub fn dump(storage: Arc<Self>) {
-        let old_number_of_dumps = storage.number_of_dumps.fetch_add(1, SeqCst);
+    pub fn dump(&'static self) {
+        let old_number_of_dumps = self.number_of_dumps.fetch_add(1, SeqCst);
         let number_of_dumps = old_number_of_dumps + 1;
         let mut file = OpenOptions::new()
             .read(true)
             .write(true)
             .create(true)
-            .open(storage.number_of_dumps_file_path.clone())
+            .open(self.number_of_dumps_file_path.clone())
             .unwrap();
         file.write_all(&[number_of_dumps as u8, (number_of_dumps >> 8) as u8, (number_of_dumps >> 16) as u8, (number_of_dumps >> 24) as u8]).unwrap();
 
         {
             let file_name = format!("log{}.bin", number_of_dumps);
-            let path: PathBuf = storage.persistence_dir_path.join(file_name);
+            let path: PathBuf = self.persistence_dir_path.join(file_name);
             let file = File::create(path).unwrap();
-            *storage.log_file.file.lock().unwrap() = file;
+            *self.log_file.file.lock().unwrap() = file;
         }
 
-        let storage_for_dump = storage.clone();
-        let last_tables_count = storage_for_dump.last_tables_count.load(SeqCst);
+        let last_tables_count = self.last_tables_count.load(SeqCst);
         let join = thread::spawn(move || {
             let tables;
             unsafe {
-                tables = &*storage_for_dump.tables.get();
+                tables = &*self.tables.get();
             }
             for (number, table) in tables.iter().enumerate() {
                 if number as u32 >= last_tables_count {
                     let engine = table.engine();
                     match engine {
                         TableEngine::InMemory => {
-                            Self::write_in_memory_table_on_disk(storage_for_dump.clone(), &table.name(), number, table.is_it_logging(), &table.user_scheme());
+                            self.write_in_memory_table_on_disk(&table.name(), number, table.is_it_logging(), &table.user_scheme());
                         }
                         TableEngine::OnDisk => {
-                            Self::write_on_disk_table_on_disk(storage_for_dump.clone(), &table.name(), number, &table.user_scheme());
+                            self.write_on_disk_table_on_disk(&table.name(), number, &table.user_scheme());
                         }
                         TableEngine::CACHE => {
-                            Self::write_cache_table_on_disk(storage_for_dump.clone(), &table.name(), number, table.is_it_logging(), table.cache_duration(), &table.user_scheme());
+                            self.write_cache_table_on_disk(&table.name(), number, table.is_it_logging(), table.cache_duration(), &table.user_scheme());
                         }
                     }
                 }
@@ -154,17 +150,16 @@ impl Storage {
         });
         join.join().unwrap();
 
-        unsafe {
-            storage.last_tables_count.store((*storage.tables.get()).len() as u32, SeqCst);
-        }
+        self.last_tables_count.store(self.tables.get().len() as u32, SeqCst);
+
 
         let file_name = format!("log{}.bin", old_number_of_dumps);
-        let path: PathBuf = storage.persistence_dir_path.join(file_name);
+        let path: PathBuf = self.persistence_dir_path.join(file_name);
         let _ = std::fs::remove_file(path);
     }
 
-    pub fn init(storage: Arc<Self>) {
-        Self::rise(storage.clone());
+    pub fn init(&'static self) {
+        Self::rise(self);
 
         let since_the_epoch = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -172,7 +167,7 @@ impl Storage {
 
         NOW_MINUTES.store(since_the_epoch, SeqCst);
 
-        let dump_interval = storage.dump_interval;
+        let dump_interval = self.dump_interval;
         tokio::spawn(async move {
             let mut dump_after = dump_interval;
             loop {
@@ -180,11 +175,10 @@ impl Storage {
 
                 dump_after -= 1;
                 if dump_after == 0 {
-                    let storage = storage.clone();
                     tokio::spawn(async move {
                         info!("Starting dump");
                         let start = Instant::now();
-                        Self::dump(storage.clone());
+                        Self::dump(self.clone());
                         let elapsed = start.elapsed();
                         success!("Dump took {:?} seconds", elapsed);
                     });
@@ -196,13 +190,9 @@ impl Storage {
                     .expect("Time went backwards").as_secs() / 60;
                 NOW_MINUTES.store(since_the_epoch, SeqCst);
 
-                let storage = storage.clone();
                 tokio::spawn(async move {
-                    let cache_tables_indexes = storage.cache_tables_indexes.read().unwrap();
-                    let tables;
-                    unsafe {
-                        tables = (&*storage.tables.get()) as &Vec<Box<dyn Table>>;
-                    }
+                    let cache_tables_indexes = self.cache_tables_indexes.read().unwrap();
+                    let tables = self.tables.get();
                     for index in cache_tables_indexes.iter() {
                         let table = tables.get(*index).unwrap();
                         table.invalid_cache();
@@ -212,14 +202,14 @@ impl Storage {
         });
     }
 
-    fn write_table_config_on_disk(storage: Arc<Self>, bin_config: &[u8]) {
+    fn write_table_config_on_disk(&'static self, bin_config: &[u8]) {
         let mut file_ = OpenOptions::new()
             .append(true)
             .create(true)
-            .open(storage.table_configs_file_path.clone());
+            .open(self.table_configs_file_path.clone());
         if file_.is_err() {
             warn!("Can't open table config file. Creating new one.");
-            file_ = File::create(storage.table_configs_file_path.clone());
+            file_ = File::create(self.table_configs_file_path.clone());
             if file_.is_err() {
                 error!("Can't create table config file.");
                 return;
@@ -242,36 +232,36 @@ impl Storage {
     }
 
     pub fn create_in_memory_table<I: Index<BinKey, BinValue> + 'static>(
-        storage: Arc<Storage>,
+        &'static self,
         name: String,
         index: I,
         is_it_logging: bool,
         scheme: Scheme,
         user_scheme: &[u8]
     ) -> usize {
-        let mut lock = storage.tables_names.write().unwrap();
+        let mut lock = self.tables_names.write().unwrap();
         let (number, is_exist) = Self::insert_table_name_and_get_number(&mut lock, &name);
         if is_exist {
             return number;
         }
         let table = InMemoryTable::new(
-            storage.persistence_dir_path.clone(),
+            self.persistence_dir_path.clone(),
             number as u16,
             index,
             name.clone(),
             is_it_logging,
-            storage.number_of_dumps.clone(),
+            self.number_of_dumps.clone(),
             scheme,
             Box::from(user_scheme)
         );
-        storage.tables.get_mut().push(Box::new(table));
+        self.tables.get_mut().push(Box::new(table));
 
         drop(lock);
 
         return number;
     }
 
-    fn write_in_memory_table_on_disk(storage: Arc<Storage>, name: &str, number: usize, is_it_logging: bool, user_scheme: &[u8]) {
+    fn write_in_memory_table_on_disk(&'static self, name: &str, number: usize, is_it_logging: bool, user_scheme: &[u8]) {
         let name_len = name.len();
         let mut buf = Vec::with_capacity(8 + name_len + user_scheme.len());
         buf.extend_from_slice(&[CREATE_TABLE_IN_MEMORY, number as u8, (number >> 8) as u8, name_len as u8, (name_len >> 8) as u8]);
@@ -281,37 +271,37 @@ impl Storage {
         buf.extend_from_slice(&[is_it_logging_byte]);
         buf.extend_from_slice(&[user_scheme.len() as u8, (user_scheme.len() >> 8) as u8]);
         buf.extend_from_slice(user_scheme);
-        Self::write_table_config_on_disk(storage.clone(), &buf);
+        Self::write_table_config_on_disk(self.clone(), &buf);
     }
 
     pub fn create_on_disk_table<I: Index<BinKey, (u64, u64)> + 'static>(
-        storage: Arc<Storage>,
+        &'static self,
         name: String,
         index: I,
         scheme: Scheme,
         user_scheme: &[u8]
     ) -> usize {
-        let mut lock = storage.tables_names.write().unwrap();
+        let mut lock = self.tables_names.write().unwrap();
         let (number, is_exist) = Self::insert_table_name_and_get_number(&mut lock, &name);
         if is_exist {
             return number;
         }
         let table = OnDiskTable::new(
-            storage.persistence_dir_path.clone(),
+            self.persistence_dir_path.clone(),
             name.clone(),
             512,
             index,
             scheme,
             Box::from(user_scheme)
         );
-        storage.tables.get_mut().push(Box::new(table));
+        self.tables.get_mut().push(Box::new(table));
 
         drop(lock);
 
         return number;
     }
 
-    fn write_on_disk_table_on_disk(storage: Arc<Storage>, name: &str, number: usize, user_scheme: &[u8]) {
+    fn write_on_disk_table_on_disk(&'static self, name: &str, number: usize, user_scheme: &[u8]) {
         let name_len = name.len();
         let mut buf = Vec::with_capacity(7 + name_len + user_scheme.len());
         buf.extend_from_slice(&[CREATE_TABLE_ON_DISK, number as u8, (number >> 8) as u8, name_len as u8, (name_len >> 8) as u8]);
@@ -319,11 +309,11 @@ impl Storage {
         buf.extend_from_slice(&[user_scheme.len() as u8, (user_scheme.len() >> 8) as u8]);
         buf.extend_from_slice(user_scheme);
         // TODO: index from log
-        Self::write_table_config_on_disk(storage.clone(), &buf);
+        Self::write_table_config_on_disk(self, &buf);
     }
 
     pub fn create_cache_table<I: Index<BinKey, (u64, BinValue)> + 'static>(
-        storage: Arc<Storage>,
+        &'static self,
         name: String,
         index: I,
         cache_duration: u64,
@@ -331,24 +321,24 @@ impl Storage {
         scheme: Scheme,
         user_scheme: &[u8]
     ) -> usize {
-        let mut lock = storage.tables_names.write().unwrap();
+        let mut lock = self.tables_names.write().unwrap();
         let (number, is_exist) = Self::insert_table_name_and_get_number(&mut lock, &name);
         if is_exist {
             return number;
         }
         let table = CacheTable::new(
-            storage.persistence_dir_path.clone(),
+            self.persistence_dir_path.clone(),
             number as u16,
             index,
             cache_duration,
             name.clone(),
             is_it_logging,
-            storage.number_of_dumps.clone(),
+            self.number_of_dumps.clone(),
             scheme,
             Box::from(user_scheme),
         );
-        storage.tables.get_mut().push(Box::new(table));
-        storage.cache_tables_indexes.write().unwrap().push(number);
+        self.tables.get_mut().push(Box::new(table));
+        self.cache_tables_indexes.write().unwrap().push(number);
 
         drop(lock);
 
@@ -356,7 +346,7 @@ impl Storage {
     }
 
     fn write_cache_table_on_disk(
-        storage: Arc<Storage>,
+        &'static self,
         name: &str,
         number: usize,
         is_it_logging: bool,
@@ -373,7 +363,7 @@ impl Storage {
         buf.extend_from_slice(&uint::u64tob(cache_duration));
         buf.extend_from_slice(&[user_scheme.len() as u8, (user_scheme.len() >> 8) as u8]);
         buf.extend_from_slice(user_scheme);
-        Self::write_table_config_on_disk(storage.clone(), &buf);
+        Self::write_table_config_on_disk(self, &buf);
     }
 
     fn get_log_file_number(path: PathBuf) -> usize {
@@ -390,8 +380,8 @@ impl Storage {
         return log_number as usize;
     }
 
-    pub fn rise(storage: Arc<Self>) {
-        let file_ = File::open(storage.table_configs_file_path.clone());
+    pub fn rise(&'static self) {
+        let file_ = File::open(self.table_configs_file_path.clone());
         if file_.is_ok() {
             let mut file = file_.unwrap();
 
@@ -439,7 +429,7 @@ impl Storage {
                                 continue 'read;
                             }
                             // TODO: think about safe of pushing
-                           let  number = (buf[offset + 1] as u16) << 8 | (buf[offset] as u16);
+                            let  number = (buf[offset + 1] as u16) << 8 | (buf[offset] as u16);
                             offset += 2;
 
                             if offset + 2 > bytes_read {
@@ -497,7 +487,7 @@ impl Storage {
                                 }
                             }
 
-                            Self::create_in_memory_table(storage.clone(), name, HashInMemoryIndex::new(), is_it_logging, scheme.unwrap(), user_scheme);
+                            Self::create_in_memory_table(self, name, HashInMemoryIndex::new(), is_it_logging, scheme.unwrap(), user_scheme);
                         }
                         CREATE_TABLE_ON_DISK => {
                             if offset + 2 > bytes_read {
@@ -555,7 +545,7 @@ impl Storage {
                                 }
                             }
 
-                            Self::create_on_disk_table(storage.clone(), name, HashInMemoryIndex::new(), scheme.unwrap(), user_scheme);
+                            Self::create_on_disk_table(self, name, HashInMemoryIndex::new(), scheme.unwrap(), user_scheme);
                         }
                         CREATE_TABLE_CACHE => {
                             if offset + 2 > bytes_read {
@@ -628,7 +618,7 @@ impl Storage {
                                 }
                             }
 
-                            Self::create_cache_table(storage.clone(), name, HashInMemoryIndex::new(), cache_duration, is_it_logging, scheme.unwrap(), user_scheme);
+                            Self::create_cache_table(self, name, HashInMemoryIndex::new(), cache_duration, is_it_logging, scheme.unwrap(), user_scheme);
                         }
                         _ => {
                             panic!("Unknown engine: {}", table_engine);
@@ -637,11 +627,11 @@ impl Storage {
                     total_tables += 1;
                 }
             }
-            storage.last_tables_count.store(total_tables, SeqCst);
+            self.last_tables_count.store(total_tables, SeqCst);
         }
 
-        let storage_for_rise = storage.clone();
-        let tables = storage_for_rise.tables.get_mut();
+        let self_for_rise = self;
+        let tables = self_for_rise.tables.get_mut();
         let mut joins = Vec::with_capacity((tables).len());
         for table in tables.iter_mut() {
             unsafe {
@@ -655,15 +645,15 @@ impl Storage {
             join.join().unwrap();
         }
 
-        Self::read_log(storage.clone());
+        Self::read_log(self);
     }
 
-    pub fn read_log(storage: Arc<Self>) {
-        let mut log_number = Self::get_log_file_number(storage.number_of_dumps_file_path.clone());
+    pub fn read_log(&'static self) {
+        let mut log_number = Self::get_log_file_number(self.number_of_dumps_file_path.clone());
 
         loop {
             let file_name = format!("log{}.bin", log_number);
-            let path: PathBuf = storage.persistence_dir_path.join(file_name);
+            let path: PathBuf = self.persistence_dir_path.join(file_name);
             let mut input = match File::open(path) {
                 Ok(file) => file,
                 Err(err) => {
@@ -694,7 +684,7 @@ impl Storage {
             let mut cache_duration;
             let mut scheme_len;
             let mut scheme_offset;
-            let tables = storage.tables.get_mut();
+            let tables = self.tables.get_mut();
 
             'read: loop {
                 if total_read == file_len {
@@ -917,7 +907,7 @@ impl Storage {
                                 }
                             }
 
-                            Self::create_in_memory_table(storage.clone(), name, HashInMemoryIndex::new(), is_it_logging, scheme.unwrap(), user_scheme);
+                            Self::create_in_memory_table(self, name, HashInMemoryIndex::new(), is_it_logging, scheme.unwrap(), user_scheme);
                         }
                         CREATE_TABLE_ON_DISK => {
                             if offset + 2 > bytes_read {
@@ -973,7 +963,7 @@ impl Storage {
                                 }
                             }
 
-                            Self::create_on_disk_table(storage.clone(), name, HashInMemoryIndex::new(), scheme.unwrap(), user_scheme);
+                            Self::create_on_disk_table(self, name, HashInMemoryIndex::new(), scheme.unwrap(), user_scheme);
                         }
                         CREATE_TABLE_CACHE => {
                             if offset + 2 > bytes_read {
@@ -1045,7 +1035,7 @@ impl Storage {
                                 }
                             }
 
-                            Self::create_cache_table(storage.clone(), name, HashInMemoryIndex::new(), cache_duration, is_it_logging, scheme.unwrap(), user_scheme);
+                            Self::create_cache_table(self, name, HashInMemoryIndex::new(), cache_duration, is_it_logging, scheme.unwrap(), user_scheme);
                         }
                         _ => {
                             panic!("Unknown action was detected while reading the log: {}", action);
@@ -1056,5 +1046,14 @@ impl Storage {
 
             log_number += 1;
         }
+    }
+}
+
+unsafe impl Send for Storage {}
+unsafe impl Sync for Storage {}
+
+impl Drop for Storage {
+    fn drop(&mut self) {
+        panic!("The storage was dropped! Can't recover it! Restart the application!");
     }
 }

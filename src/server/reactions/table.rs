@@ -1,4 +1,3 @@
-use std::sync::Arc;
 use crate::connection::{BufConnection, Status};
 use crate::constants::actions;
 use crate::index::HashInMemoryIndex;
@@ -9,7 +8,7 @@ use crate::utils::fastbytes::uint;
 use crate::writers::{LogWriter};
 
 #[inline(always)]
-pub fn create_table_in_memory<S: Stream>(connection: &mut BufConnection<S>, storage: &Arc<Storage>, message: &[u8], log_writer: &mut LogWriter) -> Status {
+pub fn create_table_in_memory<S: Stream>(connection: &mut BufConnection<S>, storage: &'static Storage, message: &[u8], log_writer: &mut LogWriter) -> Status {
     if message.len() < 7 {
         return connection.write_message(&[actions::BAD_REQUEST]);
     }
@@ -51,7 +50,7 @@ pub fn create_table_in_memory<S: Stream>(connection: &mut BufConnection<S>, stor
     }
 
 
-    let l = Storage::create_in_memory_table(storage.clone(), name, HashInMemoryIndex::new(), is_it_logging, scheme.unwrap(), user_scheme);
+    let l = Storage::create_in_memory_table(storage, name, HashInMemoryIndex::new(), is_it_logging, scheme.unwrap(), user_scheme);
     if l == (u16::MAX - 1u16) as usize {
         return connection.write_message(&[actions::BAD_REQUEST]);
     }
@@ -61,7 +60,7 @@ pub fn create_table_in_memory<S: Stream>(connection: &mut BufConnection<S>, stor
 }
 
 #[inline(always)]
-pub fn create_table_on_disk<S: Stream>(connection: &mut BufConnection<S>, storage: &Arc<Storage>, message: &[u8],  log_writer: &mut LogWriter) -> Status {
+pub fn create_table_on_disk<S: Stream>(connection: &mut BufConnection<S>, storage: &'static Storage, message: &[u8],  log_writer: &mut LogWriter) -> Status {
     if message.len() < 6 {
         return connection.write_message(&[actions::BAD_REQUEST]);
     }
@@ -111,7 +110,7 @@ pub fn create_table_on_disk<S: Stream>(connection: &mut BufConnection<S>, storag
 }
 
 #[inline(always)]
-pub fn create_table_cache<S: Stream>(connection: &mut BufConnection<S>, storage: &Arc<Storage>, message: &[u8],  log_writer: &mut LogWriter) -> Status {
+pub fn create_table_cache<S: Stream>(connection: &mut BufConnection<S>, storage: &'static Storage, message: &[u8],  log_writer: &mut LogWriter) -> Status {
     if message.len() < 11 {
         return connection.write_message(&[actions::BAD_REQUEST]);
     }
@@ -170,7 +169,7 @@ pub fn create_table_cache<S: Stream>(connection: &mut BufConnection<S>, storage:
 }
 
 #[inline(always)]
-pub fn get_tables_names<S: Stream>(connection: &mut BufConnection<S>, storage: &Arc<Storage>) -> Status {
+pub fn get_tables_names<S: Stream>(connection: &mut BufConnection<S>, storage: &'static Storage) -> Status {
     let tables_names;
     let tables_names_not_unwrapped = storage.tables_names.read();
     match tables_names_not_unwrapped {

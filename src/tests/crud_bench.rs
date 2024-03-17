@@ -8,7 +8,7 @@ use crate::storage::Storage;
 use crate::writers::LogWriter;
 
 #[cfg(test)]
-pub fn crud_bench(storage: Arc<Storage>) {
+pub fn crud_bench(storage: &Storage) {
     const N: usize = 10_400_000;
     const PAR: usize = 256;
     const COUNT: usize = N / PAR;
