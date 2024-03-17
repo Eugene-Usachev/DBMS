@@ -9,10 +9,7 @@ use crate::writers::LogWriter;
 
 #[inline(always)]
 pub fn get<S: Stream>(connection: &mut BufConnection<S>, storage: &Arc<Storage>, message: &[u8]) -> Status {
-    let tables;
-    unsafe {
-        tables = &*storage.tables.get();
-    }
+    let tables = storage.tables.get();
     return match tables.get(uint::u16(&message[1..3]) as usize) {
         Some(table) => {
             let res = table.get(&BinKey::new(&message[3..]));
@@ -30,10 +27,7 @@ pub fn get<S: Stream>(connection: &mut BufConnection<S>, storage: &Arc<Storage>,
 
 #[inline(always)]
 pub fn get_field<S: Stream>(connection: &mut BufConnection<S>, storage: &Arc<Storage>, message: &[u8]) -> Status {
-    let tables;
-    unsafe {
-        tables = &*storage.tables.get();
-    }
+    let tables = storage.tables.get();
     return match tables.get(uint::u16(&message[1..3]) as usize) {
         Some(table) => {
             let field = uint::u16(&message[3..5]);
@@ -52,10 +46,7 @@ pub fn get_field<S: Stream>(connection: &mut BufConnection<S>, storage: &Arc<Sto
 
 #[inline(always)]
 pub fn get_fields<S: Stream>(connection: &mut BufConnection<S>, storage: &Arc<Storage>, message: &[u8]) -> Status {
-    let tables;
-    unsafe {
-        tables = &*storage.tables.get();
-    }
+    let tables = storage.tables.get();
     return match tables.get(uint::u16(&message[1..3]) as usize) {
         Some(table) => {
             let number_of_fields = uint::u16(&message[3..5]) as usize;
@@ -78,10 +69,7 @@ pub fn get_fields<S: Stream>(connection: &mut BufConnection<S>, storage: &Arc<St
 
 #[inline(always)]
 pub fn insert<S: Stream>(connection: &mut BufConnection<S>, storage: &Arc<Storage>, message: &[u8], log_writer: &mut LogWriter) -> Status {
-    let tables;
-    unsafe {
-        tables = &*storage.tables.get();
-    }
+    let tables = storage.tables.get();
     let key_size = uint::u16(&message[3..5]) as usize;
     let key = &message[5..5+key_size];
     let value = &message[5+key_size..];
@@ -98,10 +86,7 @@ pub fn insert<S: Stream>(connection: &mut BufConnection<S>, storage: &Arc<Storag
 
 #[inline(always)]
 pub fn set<S: Stream>(connection: &mut BufConnection<S>, storage: &Arc<Storage>, message: &[u8], log_writer: &mut LogWriter) -> Status {
-    let tables;
-    unsafe {
-        tables = &*storage.tables.get();
-    }
+    let tables = storage.tables.get();
     let key_size = uint::u16(&message[3..5]) as usize;
     let key = &message[5..5+key_size];
     let value = &message[5+key_size..];
@@ -118,10 +103,7 @@ pub fn set<S: Stream>(connection: &mut BufConnection<S>, storage: &Arc<Storage>,
 
 #[inline(always)]
 pub fn delete<S: Stream>(connection: &mut BufConnection<S>, storage: &Arc<Storage>, message: &[u8], log_writer: &mut LogWriter) -> Status {
-    let tables;
-    unsafe {
-        tables = &*storage.tables.get();
-    }
+    let tables = storage.tables.get();
     let key = &message[3..];
     return match tables.get(uint::u16(&message[1..3]) as usize) {
         Some(table) => {

@@ -1,5 +1,5 @@
 #[allow(unused)]
-// TODO: maybe remove?
+// TODO: maybe remove? And doesn't work, because cvar sets to true in flush() and doesn't reset. If fix, we have no performance benefits
 
 use std::fs::File;
 use std::io::{BufWriter, Write};

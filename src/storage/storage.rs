@@ -2,7 +2,7 @@ use std::sync::atomic::{AtomicU32, AtomicU64};
 use std::sync::atomic::Ordering::SeqCst;
 use std::sync::{Arc, RwLock, RwLockWriteGuard};
 use std::{env, thread};
-use std::cell::UnsafeCell;
+use crate::utils::cells::UnsafeCell;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use crate::table::table::{Table, TableEngine};
 use std::fs::{File, OpenOptions};
@@ -264,9 +264,7 @@ impl Storage {
             scheme,
             Box::from(user_scheme)
         );
-        unsafe {
-            (*storage.tables.get()).push(Box::new(table));
-        }
+        storage.tables.get_mut().push(Box::new(table));
 
         drop(lock);
 
@@ -306,9 +304,7 @@ impl Storage {
             scheme,
             Box::from(user_scheme)
         );
-        unsafe {
-            (*storage.tables.get()).push(Box::new(table));
-        }
+        storage.tables.get_mut().push(Box::new(table));
 
         drop(lock);
 
@@ -351,9 +347,7 @@ impl Storage {
             scheme,
             Box::from(user_scheme),
         );
-        unsafe {
-            (*storage.tables.get()).push(Box::new(table));
-        }
+        storage.tables.get_mut().push(Box::new(table));
         storage.cache_tables_indexes.write().unwrap().push(number);
 
         drop(lock);
@@ -647,10 +641,7 @@ impl Storage {
         }
 
         let storage_for_rise = storage.clone();
-        let tables;
-        unsafe {
-            tables = &mut *storage_for_rise.tables.get();
-        }
+        let tables = storage_for_rise.tables.get_mut();
         let mut joins = Vec::with_capacity((tables).len());
         for table in tables.iter_mut() {
             unsafe {
@@ -703,10 +694,7 @@ impl Storage {
             let mut cache_duration;
             let mut scheme_len;
             let mut scheme_offset;
-            let tables;
-            unsafe {
-                tables = (&mut *storage.tables.get());
-            }
+            let tables = storage.tables.get_mut();
 
             'read: loop {
                 if total_read == file_len {
