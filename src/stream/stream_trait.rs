@@ -101,7 +101,7 @@ impl Stream for File {
     }
 
     #[inline(always)]
-    fn set_read_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()> {
+    fn set_read_timeout(&self, _timeout: Option<Duration>) -> std::io::Result<()> {
         return Ok(());
     }
 

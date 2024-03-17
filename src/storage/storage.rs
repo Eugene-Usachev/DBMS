@@ -125,10 +125,7 @@ impl Storage {
 
         let last_tables_count = self.last_tables_count.load(SeqCst);
         let join = thread::spawn(move || {
-            let tables;
-            unsafe {
-                tables = &*self.tables.get();
-            }
+            let tables = self.tables.get_mut();
             for (number, table) in tables.iter().enumerate() {
                 if number as u32 >= last_tables_count {
                     let engine = table.engine();
@@ -178,7 +175,7 @@ impl Storage {
                     tokio::spawn(async move {
                         info!("Starting dump");
                         let start = Instant::now();
-                        Self::dump(self.clone());
+                        Self::dump(self);
                         let elapsed = start.elapsed();
                         success!("Dump took {:?} seconds", elapsed);
                     });
@@ -271,7 +268,7 @@ impl Storage {
         buf.extend_from_slice(&[is_it_logging_byte]);
         buf.extend_from_slice(&[user_scheme.len() as u8, (user_scheme.len() >> 8) as u8]);
         buf.extend_from_slice(user_scheme);
-        Self::write_table_config_on_disk(self.clone(), &buf);
+        Self::write_table_config_on_disk(self, &buf);
     }
 
     pub fn create_on_disk_table<I: Index<BinKey, (u64, u64)> + 'static>(
@@ -429,7 +426,8 @@ impl Storage {
                                 continue 'read;
                             }
                             // TODO: think about safe of pushing
-                            let  number = (buf[offset + 1] as u16) << 8 | (buf[offset] as u16);
+                            #[allow(unused_variables)]
+                            let number = (buf[offset + 1] as u16) << 8 | (buf[offset] as u16);
                             offset += 2;
 
                             if offset + 2 > bytes_read {
@@ -495,6 +493,7 @@ impl Storage {
                                 continue 'read;
                             }
                             // TODO: think about safe of pushing
+                            #[allow(unused_variables)]
                             let number = (buf[offset + 1] as u16) << 8 | (buf[offset] as u16);
                             offset += 2;
 
@@ -553,6 +552,7 @@ impl Storage {
                                 continue 'read;
                             }
                             // TODO: think about safe of pushing
+                            #[allow(unused_variables)]
                             let number = (buf[offset + 1] as u16) << 8 | (buf[offset] as u16);
                             offset += 2;
 
@@ -1054,6 +1054,6 @@ unsafe impl Sync for Storage {}
 
 impl Drop for Storage {
     fn drop(&mut self) {
-        panic!("The storage was dropped! Can't recover it! Restart the application!");
+        error!("The storage was dropped! Can't recover it! Restart the application!");
     }
 }

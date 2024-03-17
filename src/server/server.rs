@@ -48,7 +48,7 @@ impl Server {
         let shard_metadata_file_path: PathBuf = storage.persistence_dir_path.join("shard metadata.bin");
 
         let mut server = Self {
-            storage: storage.clone(),
+            storage: storage,
             tcp_addr: config.tcp_addr,
             unix_addr: config.unix_addr,
             node_addr: config.node_addr,
@@ -250,7 +250,7 @@ impl Server {
         success!("Server tcp listening on address {}", server.tcp_addr.clone());
         for stream in listener.incoming() {
             let server = server.clone();
-            let storage= server.storage.clone();
+            let storage= server.storage;
             thread::spawn(move || {
                 match stream {
                     Ok(stream) => {

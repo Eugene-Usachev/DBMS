@@ -100,7 +100,7 @@ pub fn create_table_on_disk<S: Stream>(connection: &mut BufConnection<S>, storag
     }
 
 
-    let l = Storage::create_on_disk_table(storage.clone(), name, HashInMemoryIndex::new(), scheme.unwrap(), user_scheme);
+    let l = Storage::create_on_disk_table(storage, name, HashInMemoryIndex::new(), scheme.unwrap(), user_scheme);
     if l == (u16::MAX - 1u16) as usize {
         return connection.write_message(&[actions::BAD_REQUEST]);
     }
@@ -161,7 +161,7 @@ pub fn create_table_cache<S: Stream>(connection: &mut BufConnection<S>, storage:
         log_writer.write_slice(&buf);
     }
 
-    let l = Storage::create_cache_table(storage.clone(), name, HashInMemoryIndex::new(), cache_duration, is_it_logging, scheme.unwrap(), user_scheme);
+    let l = Storage::create_cache_table(storage, name, HashInMemoryIndex::new(), cache_duration, is_it_logging, scheme.unwrap(), user_scheme);
     if l == (u16::MAX - 1u16) as usize {
         return connection.write_message(&[actions::BAD_REQUEST]);
     }

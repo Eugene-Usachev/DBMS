@@ -42,14 +42,15 @@ fn main() {
         .block_on(async {
             info!("Starting test");
             let storage = Storage::new(["test_data"].iter().collect());
+            let storage_static = unsafe { mem::transmute::<&Storage, &'static Storage>(&storage) };
             info!("Storage created");
-            Storage::init(&storage);
+            Storage::init(storage_static);
             info!("Storage initialized");
-            crud(&storage);
-            persistence(&storage);
+            crud(storage_static);
+            persistence(storage_static);
 
             println!();
-            crud_bench(&storage);
+            crud_bench(storage_static);
 
             fs::remove_dir_all("test_data").unwrap();
         });

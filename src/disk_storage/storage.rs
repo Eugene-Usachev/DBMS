@@ -7,6 +7,7 @@ use std::{
         atomic::AtomicU64
     }
 };
+#[cfg(not(target_os = "windows"))]
 use std::fs::OpenOptions;
 use std::path::PathBuf;
 use ahash::{HashMap, HashMapExt, RandomState};
@@ -19,7 +20,6 @@ const BUFFER_SIZE: usize = 4100;
 const DELETE_BUFFER_SIZE: usize = 66;
 
 pub struct DiskStorage<I: Index<BinKey, (u64, u64)>> {
-    /// Here `Vec<u8>` is the key.
     /// Be careful! Size and offset to the VALUE, not to the value and key and 6 bytes for the size of the value and key.
     /// You can think, that we can use a struct instead. We can't, it is make this code too slow.
     pub(crate) infos: I,
