@@ -17,7 +17,7 @@ pub struct SerialInMemoryIndex<V>
 impl<V> SerialInMemoryIndex<V>
     where V: Eq + Clone
 {
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         let state = RandomState::new();
         let lob = f64::log2(SIZE as f64) as u32;
         let mask = (1 << lob) - 1;

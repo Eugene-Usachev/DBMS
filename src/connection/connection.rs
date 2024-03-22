@@ -1,69 +1,61 @@
-use std::io::{BufWriter, Read, Write};
-use crate::error;
+use std::marker::PhantomData;
 use crate::stream::Stream;
-use crate::utils::fastbytes::uint;
-use crate::utils::fastbytes::uint::u16;
+use crate::connection::{
+    status::Status,
+    reader::BufReader as BReader,
+    writer::BufWriter as BWriter,
+    BUFFER_SIZE
+};
 
-const BUFFER_SIZE: usize = u16::MAX as usize;
+pub trait BufReader<'stream, S: Stream> {
+    fn read_more(&mut self, needed: usize) -> Status;
+    /// read request returns status and is a request reading.
+    fn read_request(&mut self) -> (Status, bool);
+    fn read_message(&mut self) -> (&'stream [u8], Status);
+}
 
-pub struct BufReader<R: Read> {
-    pub buf: [u8; BUFFER_SIZE],
-    pub big_buf: Vec<u8>,
+pub trait BufWriter<'stream, S: Stream> {
+    fn write_all(&mut self, buf: &[u8]) -> std::io::Result<()>;
+    fn stream<'a>(&'a mut self) -> &'a mut S;
+    fn flush(&mut self) -> std::io::Result<()>;
+    fn write_message(&mut self, message: &[u8]) -> Status;
+    fn write_message_and_status(&mut self, message: &[u8], status: u8) -> Status;
+    fn close(&mut self) -> std::io::Result<()>;
+}
+
+pub fn split_buffered<S: Stream>(stream: S) -> (BReader<S>, BWriter<S>) {
+    let clone = stream.clone_ptr();
+    let reader = BReader::new(clone);
+    let writer = BWriter::new(stream);
+    (reader, writer)
+}
+
+pub struct BufConnection<'stream, S: Stream, R: BufReader<'stream, S>, W: BufWriter<'stream, S>> {
     pub reader: R,
-    pub read_offset: usize,
-    pub write_offset: usize,
-    pub request_size: usize,
+    pub writer: W,
+
+    pd: PhantomData<&'stream S>
 }
 
-impl<R: Read> BufReader<R> {
-    pub fn new(reader: R) -> Self {
-        Self {
-            buf: [0; BUFFER_SIZE],
-            big_buf: Vec::with_capacity(0),
-            reader,
-            read_offset: 0,
-            write_offset: 0,
-            request_size: 0,
-        }
-    }
-}
-
-#[repr(u8)]
-#[derive(PartialEq)]
-pub enum Status {
-    Ok,
-    All,
-    Closed,
-    Error
-}
-
-pub struct BufConnection<S: Stream> {
-    pub reader: BufReader<S>,
-    pub writer: BufWriter<S>,
-}
-
-impl<'a, S: Stream> BufConnection<S> {
-    pub fn new(stream: S) -> Self {
-        let clone = stream.clone_ptr();
-        let reader = BufReader::new(clone);
-        let writer = BufWriter::with_capacity(BUFFER_SIZE, stream);
-
+impl<'stream, S: Stream, R: BufReader<'stream, S>, W: BufWriter<'stream, S>> BufConnection<'stream, S, R, W> {
+    pub fn new(reader: R, writer: W) -> Self {
         Self {
             reader,
             writer,
+            pd: PhantomData,
         }
     }
 
     #[inline(always)]
     #[allow(unused)]
-    pub fn reader(&'a mut self) -> &'a mut BufReader<S> {
+    pub fn reader(&'stream mut self) -> &'stream mut R {
         &mut self.reader
     }
 
     #[inline(always)]
     #[allow(unused)]
-    pub fn stream(&'a mut self) -> &'a mut S {
-        self.writer.get_mut()
+    pub fn stream(&'stream mut self) -> &'stream mut S {
+        self.writer.stream()
     }
 
     #[inline(always)]
@@ -72,172 +64,32 @@ impl<'a, S: Stream> BufConnection<S> {
     }
 
     #[inline(always)]
-    fn read_more(reader: &mut BufReader<S>, needed: usize) -> Status {
-        if needed > BUFFER_SIZE {
-            reader.big_buf.resize(needed, 0);
-            let mut read = reader.write_offset - reader.read_offset;
-            reader.big_buf[0..read].copy_from_slice(&reader.buf[reader.read_offset..reader.write_offset]);
-            reader.write_offset = 0;
-            reader.read_offset = 0;
-            loop {
-                match Stream::read(&mut reader.reader, &mut reader.big_buf[read..needed]) {
-                    Ok(0) => {
-                        return Status::Closed;
-                    }
-                    Ok(size) => {
-                        read += size;
-                        if read >= needed {
-                            return Status::Ok;
-                        }
-                    }
-                    Err(e) => {
-                        error!("Read connection error: {:?}", e);
-                        return Status::Error;
-                    }
-                };
-            }
-        }
-        if needed > BUFFER_SIZE - reader.write_offset {
-            let left = reader.write_offset - reader.read_offset;
-            let buf = Vec::from(&reader.buf[reader.read_offset..reader.write_offset]);
-            reader.buf[0..left].copy_from_slice(&buf);
-            reader.read_offset = 0;
-            reader.write_offset = left;
-        }
-
-        let mut read = 0;
-        loop {
-            match Stream::read(&mut reader.reader, &mut reader.buf[reader.write_offset..]) {
-                Ok(0) => {
-                    return Status::Closed;
-                }
-                Ok(size) => {
-                    reader.write_offset += size;
-                    read += size;
-                    if read >= needed {
-                        return Status::Ok;
-                    }
-                }
-                Err(e) => {
-                    error!("Read connection error: {:?}", e);
-                    return Status::Error;
-                }
-            };
-        }
-    }
-
-    /// read request returns status and is a request reading.
-    #[inline(always)]
     pub fn read_request(&mut self) -> (Status, bool) {
-        let mut reader = &mut self.reader;
-        reader.write_offset = 0;
-        let status = Self::read_more(&mut reader, 5);
-        if status != Status::Ok {
-            return (status, false);
-        }
-        reader.request_size = uint::u32(&reader.buf[0..4]) as usize;
-        reader.read_offset = 5;
-        return (Status::Ok, reader.buf[4] == 1);
+        self.reader.read_request()
     }
 
     #[inline(always)]
-    pub fn read_message(&mut self) -> (&'a [u8], Status) {
-        if self.reader.big_buf.capacity() > 0 {
-            self.reader.big_buf = Vec::with_capacity(0);
-        }
-        if self.reader.request_size == 0 {
-            return (&[], Status::All);
-        }
-        let mut reader = &mut self.reader;
-        if reader.write_offset < reader.read_offset + 2 {
-            let status = Self::read_more(&mut reader, 2);
-            if status != Status::Ok {
-                return (&[], status);
-            }
-        }
-
-        let mut len = u16(&reader.buf[reader.read_offset..reader.read_offset + 2]) as usize;
-        reader.read_offset += 2;
-        reader.request_size -= 2;
-        if len == u16::MAX as usize {
-            if reader.write_offset < reader.read_offset + 4 {
-                let status = Self::read_more(&mut reader, 4);
-                if status != Status::Ok {
-                    return (&[], status);
-                }
-            }
-            len = uint::u32(&reader.buf[reader.read_offset..reader.read_offset + 4]) as usize;
-            reader.read_offset += 4;
-            reader.request_size -= 4;
-        }
-
-        if reader.write_offset < reader.read_offset + len {
-            let status = Self::read_more(&mut reader, len);
-            if status != Status::Ok {
-                return (&[], status);
-            }
-        }
-
-        reader.request_size -= len;
-        if len < u16::MAX as usize {
-            reader.read_offset += len;
-            let ptr = &reader.buf[reader.read_offset - len..reader.read_offset];
-            return (unsafe {std::mem::transmute::<&[u8], &'a [u8]>(ptr)}, Status::Ok);
-        }
-
-        let prt = &reader.big_buf[..len];
-        return (unsafe {std::mem::transmute::<&[u8], &'a [u8]>(prt)}, Status::Ok);
+    pub fn read_message(&mut self) -> (&[u8], Status) {
+        self.reader.read_message()
     }
 
     #[inline(always)]
     pub fn write_message(&mut self, message: &[u8]) -> Status {
-        let message_len = message.len();
-        let mut res;
-        if message_len < u16::MAX as usize {
-            res = self.writer.write_all(&[message_len as u8, (message_len >> 8) as u8]);
-        } else {
-            res = self.writer.write_all(&[255, 255, message_len as u8, (message_len >> 8) as u8, (message_len >> 16) as u8, (message_len >> 24) as u8]);
-        }
-
-        if res.is_err() {
-            return Status::Error;
-        }
-
-        res = self.writer.write_all(message);
-        if res.is_err() {
-            return Status::Error;
-        }
-        return Status::Ok;
+        self.writer.write_message(message)
     }
 
     #[inline(always)]
     pub fn write_message_and_status(&mut self, message: &[u8], status: u8) -> Status {
-        let message_len = message.len() + 1;
-        let mut res;
-        if message_len < u16::MAX as usize {
-            res = self.writer.write_all(&[message_len as u8, (message_len >> 8) as u8]);
-        } else {
-            res = self.writer.write_all(&[255, 255, message_len as u8, (message_len >> 8) as u8, (message_len >> 16) as u8, (message_len >> 24) as u8]);
-        }
-
-        if res.is_err() {
-            return Status::Error;
-        }
-
-        res = self.writer.write_all(&[status]);
-        if res.is_err() {
-            return Status::Error;
-        }
-
-        res = self.writer.write_all(message);
-        if res.is_err() {
-            return Status::Error;
-        }
-        return Status::Ok;
+        self.writer.write_message_and_status(message, status)
     }
 
     #[inline(always)]
     pub fn close(&mut self) -> std::io::Result<()> {
-        self.writer.get_mut().shutdown()
+        self.writer.close()
     }
+}
+
+pub fn buffered<'stream, S: Stream>(stream: S) -> BufConnection<'stream, S, BReader<S>, BWriter<S>> {
+    let (reader, writer) = split_buffered(stream);
+    BufConnection::new(reader, writer)
 }

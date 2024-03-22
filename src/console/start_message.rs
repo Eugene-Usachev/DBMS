@@ -1,7 +1,7 @@
 use crate::info;
 
 #[allow(dead_code)]
-pub(crate) fn start_message() {
+pub fn start_message() {
     let welcome_message = format!("
     ------------------------------------------------------------------
     |{: ^64}|

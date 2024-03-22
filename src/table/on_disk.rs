@@ -15,7 +15,7 @@ pub struct OnDiskTable<I: Index<BinKey, (u64, u64)>> {
 }
 
 impl<I: Index<BinKey, (u64, u64)>> OnDiskTable<I> {
-    pub(crate) fn new(
+    pub fn new(
         persistence_dir_path: PathBuf,
         name: String,
         size: usize,

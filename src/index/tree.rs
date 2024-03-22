@@ -17,7 +17,7 @@ pub struct TreeInMemoryIndex<K, V>
 impl<K, V> TreeInMemoryIndex<K, V>
     where K: Eq + Ord + Hash, V: Eq + Clone
 {
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         let state = RandomState::new();
         let mask = f64::log2(SIZE as f64) as u32;
         let lob = (1 << mask) - 1;

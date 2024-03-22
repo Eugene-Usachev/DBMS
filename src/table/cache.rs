@@ -11,7 +11,7 @@ use crate::table::table::{Table, TableEngine};
 use crate::storage::storage::NOW_MINUTES;
 use crate::index::Index;
 use crate::scheme::scheme;
-use crate::utils::fastbytes::uint;
+use crate::utils::bytes::uint;
 use crate::utils::read_more;
 use crate::writers::{LogWriter, SizedWriter};
 

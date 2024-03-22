@@ -22,7 +22,7 @@ const DELETE_BUFFER_SIZE: usize = 66;
 pub struct DiskStorage<I: Index<BinKey, (u64, u64)>> {
     /// Be careful! Size and offset to the VALUE, not to the value and key and 6 bytes for the size of the value and key.
     /// You can think, that we can use a struct instead. We can't, it is make this code too slow.
-    pub(crate) infos: I,
+    pub infos: I,
     path: PathBuf,
     atomic_indexes: Box<[Arc<AtomicU64>]>,
     files: Box<[Arc<Mutex<SizedWriter<File>>>]>,
@@ -36,7 +36,7 @@ pub struct DiskStorage<I: Index<BinKey, (u64, u64)>> {
 // CRUD
 impl<I: Index<BinKey, (u64, u64)>> DiskStorage<I> {
     #[inline(always)]
-    pub(crate) fn insert(&self, key: BinKey, value: BinValue) -> bool {
+    pub fn insert(&self, key: BinKey, value: BinValue) -> bool {
         if self.infos.contains(&key) {
             return false;
         }
@@ -62,7 +62,7 @@ impl<I: Index<BinKey, (u64, u64)>> DiskStorage<I> {
     }
 
     #[inline(always)]
-    pub(crate) fn get(&self, key: &BinKey) -> Option<BinValue>{
+    pub fn get(&self, key: &BinKey) -> Option<BinValue>{
         // TODO: uncomment
         // TODO: should we use BufReader?
         let (file, info) = self.get_index_and_file(key)?;
@@ -74,7 +74,7 @@ impl<I: Index<BinKey, (u64, u64)>> DiskStorage<I> {
     }
 
     #[inline(always)]
-    pub(crate) fn delete(&self, key: &BinKey) {
+    pub fn delete(&self, key: &BinKey) {
         let file_lock = self.get_need_to_delete(key);
         let mut file = file_lock.lock().unwrap();
         if self.infos.remove(key).is_none() {
@@ -86,7 +86,7 @@ impl<I: Index<BinKey, (u64, u64)>> DiskStorage<I> {
     }
 
     #[inline(always)]
-    pub(crate) fn set(&self, key: BinKey, value: BinValue) -> Option<BinValue> {
+    pub fn set(&self, key: BinKey, value: BinValue) -> Option<BinValue> {
         let mut hasher = RandomState::build_hasher(&self.rs);
         key.hash(&mut hasher);
         let number = hasher.finish() as usize & self.lob;
@@ -322,7 +322,7 @@ impl<I: Index<BinKey, (u64, u64)>> DiskStorage<I> {
 // some helpers function
 impl<I: Index<BinKey, (u64, u64)>> DiskStorage<I> {
     #[allow(unused_variables)]
-    pub(crate) fn new(path: PathBuf, size: usize, index: I) -> DiskStorage<I> {
+    pub fn new(path: PathBuf, size: usize, index: I) -> DiskStorage<I> {
         #[cfg(target_os = "windows")] {
             panic!("Do not use windows for `on disk` storage. It is not implemented yet.");
         }

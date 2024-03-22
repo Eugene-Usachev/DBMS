@@ -1,18 +1,23 @@
 use std::fs::File;
 use std::io::Read;
 use std::sync::Arc;
-use crate::connection::{BufConnection, Status};
+use crate::connection::{BufConnection, BufReader, BufWriter, Status};
 use crate::constants::actions;
 use crate::server::server::Server;
 use crate::stream::Stream;
 
 #[inline(always)]
-pub fn ping<S: Stream>(connection: &mut BufConnection<S>) -> Status {
+pub fn ping<'stream, S: Stream, R: BufReader<'stream, S>, W: BufWriter<'stream, S>> (
+    connection: &mut BufConnection<'stream, S, R, W>
+) -> Status {
     connection.write_message(&[actions::DONE, actions::PING])
 }
 
 #[inline(always)]
-pub fn get_shard_metadata<S: Stream>(connection: &mut BufConnection<S>, server: &Arc<Server>) -> Status {
+pub fn get_shard_metadata<'stream, S: Stream, R: BufReader<'stream, S>, W: BufWriter<'stream, S>> (
+    connection: &mut BufConnection<'stream, S, R, W>,
+    server: &Arc<Server>
+) -> Status {
     let ref path= server.shard_metadata_file_path;
     let mut file = File::open(path).expect("Can't open shard metadata file!");
     let mut buf = Vec::with_capacity(65536 * 2);
@@ -21,7 +26,10 @@ pub fn get_shard_metadata<S: Stream>(connection: &mut BufConnection<S>, server: 
 }
 
 #[inline(always)]
-pub fn get_hierarchy<S: Stream>(connection: &mut BufConnection<S>, server: &Arc<Server>) -> Status {
+pub fn get_hierarchy<'stream, S: Stream, R: BufReader<'stream, S>, W: BufWriter<'stream, S>> (
+    connection: &mut BufConnection<'stream, S, R, W>,
+    server: &Arc<Server>
+) -> Status {
     let ref hierarchy = server.hierarchy;
     // We think that average production machine address length is 20 and average node contains 3 machines.
     // Anyway get_hierarchy is rare action, so we are ready to be patient, even if it is slow.

@@ -1,4 +1,4 @@
-pub mod fastbytes;
+pub mod bytes;
 pub mod read_more;
 pub mod cells;
 

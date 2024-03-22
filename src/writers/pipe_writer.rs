@@ -43,7 +43,7 @@ impl PipeWriter {
         }
     }
 
-    pub(crate) fn flush_locked(file: &mut MutexGuard<BufWriter<File>>, cvar: Arc<(Mutex<bool>, Condvar)>) {
+    pub fn flush_locked(file: &mut MutexGuard<BufWriter<File>>, cvar: Arc<(Mutex<bool>, Condvar)>) {
         file.flush().unwrap();
         let (lock, cvar) = &*cvar;
         let mut started = lock.lock().unwrap();

@@ -16,7 +16,7 @@ pub struct HashInMemoryIndex<K, V>
 impl<K, V> HashInMemoryIndex<K, V>
     where K: Eq + Hash, V: Eq + Clone
 {
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         let state = RandomState::new();
         let mask = f64::log2(SIZE as f64) as u32;
         let lob = (1 << mask) - 1;

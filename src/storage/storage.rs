@@ -16,7 +16,7 @@ use crate::scheme::scheme::{empty_scheme, Scheme, scheme_from_bytes};
 use crate::table::cache::CacheTable;
 use crate::table::in_memory::InMemoryTable;
 use crate::table::on_disk::OnDiskTable;
-use crate::utils::fastbytes::uint;
+use crate::utils::bytes::uint;
 use crate::utils::read_more;
 use crate::writers::{LogFile};
 

@@ -11,7 +11,7 @@ use crate::index::Index;
 use crate::scheme::scheme;
 use crate::writers::{LogWriter, SizedWriter};
 use crate::table::table::{Table, TableEngine};
-use crate::utils::fastbytes::uint;
+use crate::utils::bytes::uint;
 use crate::utils::read_more;
 
 pub struct InMemoryTable<I: Index<BinKey, BinValue>> {

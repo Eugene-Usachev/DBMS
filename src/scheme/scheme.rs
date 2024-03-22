@@ -5,7 +5,7 @@ use serde_json::json;
 use crate::bin_types::BinValue;
 use crate::scheme::field_info::{field_type_from_string, FieldInfo, get_size};
 #[cfg(test)]
-use crate::utils::fastbytes::uint::{u16, u64, u64tob};
+use crate::utils::bytes::uint::{u16, u64, u64tob};
 use crate::writers::get_size_for_value_len;
 
 pub type Scheme = Box<[FieldInfo]>;

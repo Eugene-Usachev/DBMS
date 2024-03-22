@@ -5,8 +5,8 @@ use std::net::{TcpListener};
 use std::os::unix::net::UnixListener;
 use std::path::PathBuf;
 use std::sync::{Arc};
-use std::thread;
-use crate::connection::{BufConnection, Status};
+use std::{mem, thread};
+use crate::connection::{BufConnection, buffered, BufReader, BufWriter, Status};
 
 use crate::constants::actions;
 use crate::constants::actions::DONE;
@@ -19,7 +19,7 @@ use crate::server::reactions::status::{get_hierarchy, get_shard_metadata, ping};
 use crate::server::reactions::table::{create_table_cache, create_table_in_memory, create_table_on_disk, get_tables_names};
 use crate::server::reactions::work_with_tables::{delete, get, get_field, get_fields, insert, set};
 use crate::stream::Stream;
-use crate::utils::fastbytes::uint;
+use crate::utils::bytes::uint;
 use crate::utils::read_more;
 use crate::writers::LogWriter;
 
@@ -230,7 +230,7 @@ impl Server {
                     thread::spawn(move || {
                         match stream {
                             Ok(stream) => {
-                                Self::handle_client(server, storage, BufConnection::new(stream));
+                                Self::handle_client(server, storage, buffered(stream));
                             }
                             Err(e) => {
                                 error!("Error: {}", e);
@@ -254,7 +254,7 @@ impl Server {
             thread::spawn(move || {
                 match stream {
                     Ok(stream) => {
-                        Self::handle_client(server, storage, BufConnection::new(stream));
+                        Self::handle_client(server, storage, buffered(stream));
                     }
                     Err(e) => {
                         error!("Error: {}", e);
@@ -265,13 +265,17 @@ impl Server {
     }
 
     #[inline(always)]
-    fn handle_client<S: Stream>(server: Arc<Server>, storage: &'static Storage, mut connection: BufConnection<S>) {
+    fn handle_client<'stream, S: Stream, R: BufReader<'stream, S>, W: BufWriter<'stream, S>> (
+        server: Arc<Server>,
+        storage: &'static Storage,
+        mut connection: BufConnection<'stream, S, R, W>
+    ) {
         let mut status;
         let mut is_reading;
         if server.password.len() > 0 {
             let mut buf = vec![0;server.password.len()];
-            let reader = &mut connection.reader;
-            reader.reader.read_exact(&mut buf).expect("Failed to read password");
+            let stream = connection.writer.stream();
+            stream.read_exact(&mut buf).expect("Failed to read password");
             if buf != server.password.as_bytes() {
                 warn!("Wrong password. Disconnected.");
                 connection.close().expect("Failed to close connection");
@@ -304,6 +308,9 @@ impl Server {
                     return;
                 }
 
+                // copy the reference to ignore error below and do not clone the message.
+                // It is always safe.
+                message = unsafe { mem::transmute::<&[u8], &[u8]>(message) };
                 status = Self::handle_message(&mut connection, &server, storage, message, &mut log_writer);
                 if status != Status::Ok {
                     connection.close().expect("Failed to close connection");
@@ -314,7 +321,13 @@ impl Server {
     }
 
     #[inline(always)]
-    fn handle_message<S: Stream>(connection: &mut BufConnection<S>, server: &Arc<Server>, storage: &'static Storage, message: &[u8], log_writer: &mut LogWriter) -> Status {
+    fn handle_message<'stream, S: Stream, R: BufReader<'stream, S>, W: BufWriter<'stream, S>> (
+        connection: &mut BufConnection<'stream, S, R, W>,
+        server: &Arc<Server>,
+        storage: &'static Storage,
+        message: &[u8],
+        log_writer: &mut LogWriter
+    ) -> Status {
         return match message[0] {
             actions::PING => ping(connection),
             actions::GET_SHARD_METADATA => get_shard_metadata(connection, server),

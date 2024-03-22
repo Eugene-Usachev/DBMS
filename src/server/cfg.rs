@@ -9,7 +9,7 @@ pub struct Config {
 }
 
 impl Config {
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         let tcp_addr = match env::var("TCP_ADDR") {
             Ok(value) => {
                 info!("The address was set to: {} using the environment variable \"TCP_ADDR\"", value);

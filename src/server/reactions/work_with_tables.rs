@@ -1,13 +1,17 @@
 use crate::bin_types::{BinKey, BinValue};
-use crate::connection::{BufConnection, Status};
+use crate::connection::{BufConnection, BufReader, BufWriter, Status};
 use crate::constants::actions;
 use crate::storage::storage::Storage;
 use crate::stream::Stream;
-use crate::utils::fastbytes::uint;
+use crate::utils::bytes::uint;
 use crate::writers::LogWriter;
 
 #[inline(always)]
-pub fn get<S: Stream>(connection: &mut BufConnection<S>, storage: &'static Storage, message: &[u8]) -> Status {
+pub fn get<'stream, S: Stream, R: BufReader<'stream, S>, W: BufWriter<'stream, S>> (
+    connection: &mut BufConnection<'stream, S, R, W>,
+    storage: &'static Storage,
+    message: &[u8]
+) -> Status {
     let tables = storage.tables.get();
     return match tables.get(uint::u16(&message[1..3]) as usize) {
         Some(table) => {
@@ -25,7 +29,11 @@ pub fn get<S: Stream>(connection: &mut BufConnection<S>, storage: &'static Stora
 }
 
 #[inline(always)]
-pub fn get_field<S: Stream>(connection: &mut BufConnection<S>, storage: &'static Storage, message: &[u8]) -> Status {
+pub fn get_field<'stream, S: Stream, R: BufReader<'stream, S>, W: BufWriter<'stream, S>> (
+    connection: &mut BufConnection<'stream, S, R, W>,
+    storage: &'static Storage,
+    message: &[u8]
+) -> Status {
     let tables = storage.tables.get();
     return match tables.get(uint::u16(&message[1..3]) as usize) {
         Some(table) => {
@@ -44,7 +52,11 @@ pub fn get_field<S: Stream>(connection: &mut BufConnection<S>, storage: &'static
 }
 
 #[inline(always)]
-pub fn get_fields<S: Stream>(connection: &mut BufConnection<S>, storage: &'static Storage, message: &[u8]) -> Status {
+pub fn get_fields<'stream, S: Stream, R: BufReader<'stream, S>, W: BufWriter<'stream, S>> (
+    connection: &mut BufConnection<'stream, S, R, W>,
+    storage: &'static Storage,
+    message: &[u8]
+) -> Status {
     let tables = storage.tables.get();
     return match tables.get(uint::u16(&message[1..3]) as usize) {
         Some(table) => {
@@ -67,7 +79,12 @@ pub fn get_fields<S: Stream>(connection: &mut BufConnection<S>, storage: &'stati
 }
 
 #[inline(always)]
-pub fn insert<S: Stream>(connection: &mut BufConnection<S>, storage: &'static Storage, message: &[u8], log_writer: &mut LogWriter) -> Status {
+pub fn insert<'stream, S: Stream, R: BufReader<'stream, S>, W: BufWriter<'stream, S>> (
+    connection: &mut BufConnection<'stream, S, R, W>,
+    storage: &'static Storage,
+    message: &[u8],
+    log_writer: &mut LogWriter
+) -> Status {
     let tables = storage.tables.get();
     let key_size = uint::u16(&message[3..5]) as usize;
     let key = &message[5..5+key_size];
@@ -84,7 +101,12 @@ pub fn insert<S: Stream>(connection: &mut BufConnection<S>, storage: &'static St
 }
 
 #[inline(always)]
-pub fn set<S: Stream>(connection: &mut BufConnection<S>, storage: &'static Storage, message: &[u8], log_writer: &mut LogWriter) -> Status {
+pub fn set<'stream, S: Stream, R: BufReader<'stream, S>, W: BufWriter<'stream, S>> (
+    connection: &mut BufConnection<'stream, S, R, W>,
+    storage: &'static Storage,
+    message: &[u8],
+    log_writer: &mut LogWriter
+) -> Status {
     let tables = storage.tables.get();
     let key_size = uint::u16(&message[3..5]) as usize;
     let key = &message[5..5+key_size];
@@ -101,7 +123,12 @@ pub fn set<S: Stream>(connection: &mut BufConnection<S>, storage: &'static Stora
 }
 
 #[inline(always)]
-pub fn delete<S: Stream>(connection: &mut BufConnection<S>, storage: &'static Storage, message: &[u8], log_writer: &mut LogWriter) -> Status {
+pub fn delete<'stream, S: Stream, R: BufReader<'stream, S>, W: BufWriter<'stream, S>> (
+    connection: &mut BufConnection<'stream, S, R, W>,
+    storage: &'static Storage,
+    message: &[u8],
+    log_writer: &mut LogWriter
+) -> Status {
     let tables = storage.tables.get();
     let key = &message[3..];
     return match tables.get(uint::u16(&message[1..3]) as usize) {
