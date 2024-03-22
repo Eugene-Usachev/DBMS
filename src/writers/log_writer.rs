@@ -2,11 +2,15 @@
 
 // TODO: maybe remove?
 
-use std::fs::File;
-use std::io::{BufWriter, Write};
-use std::sync::{Arc, Mutex};
-use crate::bin_types::{BinKey, BinValue};
-use crate::writers::{get_size_for_key_len, get_size_for_value_len};
+use std::{
+    fs::File,
+    io::{BufWriter, Write},
+    sync::{Arc, Mutex}
+};
+use crate::{
+    bin_types::{BinKey, BinValue},
+    writers::{get_size_for_key_len, get_size_for_value_len}
+};
 
 pub struct LogFile {
     pub file: Arc<Mutex<File>>,

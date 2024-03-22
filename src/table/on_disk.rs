@@ -1,11 +1,12 @@
 use std::path::PathBuf;
-use crate::bin_types::{BinKey, BinValue};
-use crate::table::table::{Table, TableEngine};
-
-use crate::disk_storage::storage::DiskStorage;
-use crate::index::Index;
-use crate::scheme::scheme::Scheme;
-use crate::writers::LogWriter;
+use crate::{
+    bin_types::{BinKey, BinValue},
+    table::table::{Table, TableEngine},
+    disk_storage::storage::DiskStorage,
+    index::Index,
+    scheme::scheme::Scheme,
+    writers::LogWriter,
+};
 
 pub struct OnDiskTable<I: Index<BinKey, (u64, u64)>> {
     core: DiskStorage<I>,

@@ -1,12 +1,14 @@
-use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value};
-#[cfg(test)]
-use serde_json::json;
-use crate::bin_types::BinValue;
-use crate::scheme::field_info::{field_type_from_string, FieldInfo, get_size};
+use crate::{
+    bin_types::BinValue,
+    scheme::field_info::{field_type_from_string, get_size, FieldInfo},
+    writers::get_size_for_value_len
+};
 #[cfg(test)]
 use crate::utils::bytes::uint::{u16, u64, u64tob};
-use crate::writers::get_size_for_value_len;
+use serde::{Deserialize, Serialize};
+#[cfg(test)]
+use serde_json::json;
+use serde_json::{Map, Value};
 
 pub type Scheme = Box<[FieldInfo]>;
 
@@ -24,7 +26,8 @@ pub fn scheme_from_bytes(data: &[u8]) -> Result<Scheme, &'static str> {
         Ok(scheme_json) => scheme_json,
         Err(_) => return Err("Scheme is not valid JSON"),
     };
-    let mut scheme = Vec::with_capacity(scheme_json.sized_fields.len() + scheme_json.unsized_fields.len());
+    let mut scheme =
+        Vec::with_capacity(scheme_json.sized_fields.len() + scheme_json.unsized_fields.len());
 
     let mut cur_offset = 0;
     let mut number_of_unsized_fields = 0;
@@ -90,7 +93,7 @@ pub fn get_field(value: &BinValue, scheme: &Scheme, number: usize) -> Vec<u8> {
 
     let necessary_to_read_len = size - 17;
     let mut len_of_field;
-    let mut buf_for_field_len = [0;4];
+    let mut buf_for_field_len = [0; 4];
     // Here we read a few fields to find an offset to needed field.
     for _ in 0..necessary_to_read_len {
         unsafe {
@@ -103,7 +106,10 @@ pub fn get_field(value: &BinValue, scheme: &Scheme, number: usize) -> Vec<u8> {
             offset += 2;
             unsafe {
                 std::ptr::copy_nonoverlapping(ptr.add(offset), buf_for_field_len.as_mut_ptr(), 4);
-                len_of_field = buf_for_field_len[0] as usize | (buf_for_field_len[1] as usize) << 8 | (buf_for_field_len[2] as usize) << 16 | (buf_for_field_len[3] as usize) << 24;
+                len_of_field = buf_for_field_len[0] as usize
+                    | (buf_for_field_len[1] as usize) << 8
+                    | (buf_for_field_len[2] as usize) << 16
+                    | (buf_for_field_len[3] as usize) << 24;
             }
             offset += 4;
         }
@@ -122,7 +128,10 @@ pub fn get_field(value: &BinValue, scheme: &Scheme, number: usize) -> Vec<u8> {
         unsafe {
             std::ptr::copy_nonoverlapping(ptr.add(offset + 2), buf_for_field_len.as_mut_ptr(), 4);
         }
-        len_of_field = buf_for_field_len[0] as usize | (buf_for_field_len[1] as usize) << 8 | (buf_for_field_len[2] as usize) << 16 | (buf_for_field_len[3] as usize) << 24;
+        len_of_field = buf_for_field_len[0] as usize
+            | (buf_for_field_len[1] as usize) << 8
+            | (buf_for_field_len[2] as usize) << 16
+            | (buf_for_field_len[3] as usize) << 24;
         size_of_field_len = 6;
     }
 
@@ -145,7 +154,7 @@ pub fn get_fields(value: &BinValue, scheme: &Scheme, numbers: &[usize]) -> Vec<u
         let size = get_size_for_value_len(len);
         ptr = unsafe { value.ptr.add(size) };
     }
-    let mut buf_for_field_len = [0;4];
+    let mut buf_for_field_len = [0; 4];
     let mut read = 0;
     let mut unsized_field_offset = usize::MAX;
 
@@ -159,7 +168,11 @@ pub fn get_fields(value: &BinValue, scheme: &Scheme, numbers: &[usize]) -> Vec<u
             response[written] = size as u8;
             written += 2;
             unsafe {
-                std::ptr::copy_nonoverlapping(ptr.add(offset), response.as_mut_ptr().add(written), size);
+                std::ptr::copy_nonoverlapping(
+                    ptr.add(offset),
+                    response.as_mut_ptr().add(written),
+                    size,
+                );
             }
             written += size;
             continue;
@@ -174,7 +187,11 @@ pub fn get_fields(value: &BinValue, scheme: &Scheme, numbers: &[usize]) -> Vec<u
         // Here we read a few fields to find an offset to needed field.
         for _ in read..necessary_to_read_len {
             unsafe {
-                std::ptr::copy_nonoverlapping(ptr.add(unsized_field_offset), buf_for_field_len.as_mut_ptr(), 2);
+                std::ptr::copy_nonoverlapping(
+                    ptr.add(unsized_field_offset),
+                    buf_for_field_len.as_mut_ptr(),
+                    2,
+                );
             }
             if buf_for_field_len[1] < 255 || buf_for_field_len[0] < 255 {
                 len_of_field = buf_for_field_len[0] as usize | (buf_for_field_len[1] as usize) << 8;
@@ -182,8 +199,15 @@ pub fn get_fields(value: &BinValue, scheme: &Scheme, numbers: &[usize]) -> Vec<u
             } else {
                 unsized_field_offset += 2;
                 unsafe {
-                    std::ptr::copy_nonoverlapping(ptr.add(unsized_field_offset), buf_for_field_len.as_mut_ptr(), 4);
-                    len_of_field = buf_for_field_len[0] as usize | (buf_for_field_len[1] as usize) << 8 | (buf_for_field_len[2] as usize) << 16 | (buf_for_field_len[3] as usize) << 24;
+                    std::ptr::copy_nonoverlapping(
+                        ptr.add(unsized_field_offset),
+                        buf_for_field_len.as_mut_ptr(),
+                        4,
+                    );
+                    len_of_field = buf_for_field_len[0] as usize
+                        | (buf_for_field_len[1] as usize) << 8
+                        | (buf_for_field_len[2] as usize) << 16
+                        | (buf_for_field_len[3] as usize) << 24;
                 }
                 unsized_field_offset += 4;
             }
@@ -194,23 +218,38 @@ pub fn get_fields(value: &BinValue, scheme: &Scheme, numbers: &[usize]) -> Vec<u
 
         let size_of_field_len;
         unsafe {
-            std::ptr::copy_nonoverlapping(ptr.add(unsized_field_offset), buf_for_field_len.as_mut_ptr(), 2);
+            std::ptr::copy_nonoverlapping(
+                ptr.add(unsized_field_offset),
+                buf_for_field_len.as_mut_ptr(),
+                2,
+            );
         }
         if buf_for_field_len[1] < 255 || buf_for_field_len[0] < 255 {
             len_of_field = buf_for_field_len[0] as usize | (buf_for_field_len[1] as usize) << 8;
             size_of_field_len = 2;
         } else {
             unsafe {
-                std::ptr::copy_nonoverlapping(ptr.add(unsized_field_offset + 2), buf_for_field_len.as_mut_ptr(), 4);
+                std::ptr::copy_nonoverlapping(
+                    ptr.add(unsized_field_offset + 2),
+                    buf_for_field_len.as_mut_ptr(),
+                    4,
+                );
             }
-            len_of_field = buf_for_field_len[0] as usize | (buf_for_field_len[1] as usize) << 8 | (buf_for_field_len[2] as usize) << 16 | (buf_for_field_len[3] as usize) << 24;
+            len_of_field = buf_for_field_len[0] as usize
+                | (buf_for_field_len[1] as usize) << 8
+                | (buf_for_field_len[2] as usize) << 16
+                | (buf_for_field_len[3] as usize) << 24;
             size_of_field_len = 6;
         }
 
         let real_len = len_of_field + size_of_field_len;
         response.resize(response.len() + real_len, 0);
         unsafe {
-            std::ptr::copy_nonoverlapping(ptr.add(unsized_field_offset), response.as_mut_ptr().add(response.len() - real_len), real_len);
+            std::ptr::copy_nonoverlapping(
+                ptr.add(unsized_field_offset),
+                response.as_mut_ptr().add(response.len() - real_len),
+                real_len,
+            );
         }
     }
 
@@ -224,9 +263,7 @@ pub fn update_field(value: &mut BinValue, scheme: &Scheme, number: usize, new_va
     let mut offset = info.offset;
     let bin_value_len = value.len();
     let bin_value_size = get_size_for_value_len(bin_value_len);
-    let ptr = unsafe {
-        value.ptr.add(bin_value_size)
-    };
+    let ptr = unsafe { value.ptr.add(bin_value_size) };
     if size < 17 {
         unsafe {
             std::ptr::copy_nonoverlapping(new_value.as_ptr(), ptr.add(offset), size);
@@ -236,7 +273,7 @@ pub fn update_field(value: &mut BinValue, scheme: &Scheme, number: usize, new_va
 
     let necessary_to_read_len = size - 17;
     let mut len_of_field;
-    let mut buf_for_field_len = [0;4];
+    let mut buf_for_field_len = [0; 4];
     // Here we read a few fields to find an offset to needed field.
     for _ in 0..necessary_to_read_len {
         unsafe {
@@ -249,7 +286,10 @@ pub fn update_field(value: &mut BinValue, scheme: &Scheme, number: usize, new_va
             offset += 2;
             unsafe {
                 std::ptr::copy_nonoverlapping(ptr.add(offset), buf_for_field_len.as_mut_ptr(), 4);
-                len_of_field = buf_for_field_len[0] as usize | (buf_for_field_len[1] as usize) << 8 | (buf_for_field_len[2] as usize) << 16 | (buf_for_field_len[3] as usize) << 24;
+                len_of_field = buf_for_field_len[0] as usize
+                    | (buf_for_field_len[1] as usize) << 8
+                    | (buf_for_field_len[2] as usize) << 16
+                    | (buf_for_field_len[3] as usize) << 24;
             }
             offset += 4;
         }
@@ -268,14 +308,21 @@ pub fn update_field(value: &mut BinValue, scheme: &Scheme, number: usize, new_va
         unsafe {
             std::ptr::copy_nonoverlapping(ptr.add(offset + 2), buf_for_field_len.as_mut_ptr(), 4);
         }
-        len_of_field = buf_for_field_len[0] as usize | (buf_for_field_len[1] as usize) << 8 | (buf_for_field_len[2] as usize) << 16 | (buf_for_field_len[3] as usize) << 24;
+        len_of_field = buf_for_field_len[0] as usize
+            | (buf_for_field_len[1] as usize) << 8
+            | (buf_for_field_len[2] as usize) << 16
+            | (buf_for_field_len[3] as usize) << 24;
         size_of_field_len = 6;
     }
 
     if len_of_field == new_value.len() {
         // fast
         unsafe {
-            std::ptr::copy_nonoverlapping(new_value.as_ptr(), ptr.add(offset + size_of_field_len), len_of_field);
+            std::ptr::copy_nonoverlapping(
+                new_value.as_ptr(),
+                ptr.add(offset + size_of_field_len),
+                len_of_field,
+            );
         }
         return;
     }
@@ -283,7 +330,8 @@ pub fn update_field(value: &mut BinValue, scheme: &Scheme, number: usize, new_va
     // slow
     let real_len_of_old_value = len_of_field + size_of_field_len;
     let new_value_len_size = get_size_for_value_len(new_value.len());
-    let new_bin_value_len = bin_value_len - real_len_of_old_value + new_value.len() + new_value_len_size;
+    let new_bin_value_len =
+        bin_value_len - real_len_of_old_value + new_value.len() + new_value_len_size;
     let buf = BinValue::with_len(new_bin_value_len);
     let mut buf_offset = get_size_for_value_len(new_bin_value_len);
     unsafe {
@@ -297,7 +345,14 @@ pub fn update_field(value: &mut BinValue, scheme: &Scheme, number: usize, new_va
             *buf.ptr.add(buf_offset) = (new_value.len() >> 8) as u8;
             buf_offset += 1;
         } else {
-            let tmp_buf = [255, 255, new_value.len() as u8, (new_value.len() >> 8) as u8, (new_value.len() >> 16) as u8, (new_value.len() >> 24) as u8];
+            let tmp_buf = [
+                255,
+                255,
+                new_value.len() as u8,
+                (new_value.len() >> 8) as u8,
+                (new_value.len() >> 16) as u8,
+                (new_value.len() >> 24) as u8,
+            ];
             std::ptr::copy_nonoverlapping(tmp_buf.as_ptr(), buf.ptr.add(buf_offset), 6);
             buf_offset += 6;
         }
@@ -399,15 +454,19 @@ pub fn update_field(value: &mut BinValue, scheme: &Scheme, number: usize, new_va
 
 #[test]
 fn test_scheme_get() {
-    let mut scheme_to_json: SchemeJSON = SchemeJSON{
+    let mut scheme_to_json: SchemeJSON = SchemeJSON {
         sized_fields: Map::with_capacity(10),
         unsized_fields: Map::with_capacity(100),
     };
     for i in 0..10 {
-        scheme_to_json.sized_fields.insert(i.to_string(), json!("Uint64".to_string()));
+        scheme_to_json
+            .sized_fields
+            .insert(i.to_string(), json!("Uint64".to_string()));
     }
     for i in 10..110 {
-        scheme_to_json.unsized_fields.insert(i.to_string(), json!("String".to_string()));
+        scheme_to_json
+            .unsized_fields
+            .insert(i.to_string(), json!("String".to_string()));
     }
     let scheme_json = serde_json::to_vec_pretty(&scheme_to_json).expect("Can't serialize scheme");
     let scheme = scheme_from_bytes(&scheme_json).expect("Can't deserialize scheme");
@@ -457,7 +516,11 @@ fn test_scheme_get() {
         }
         v.extend_from_slice(str_i.as_bytes());
         if single_unsized_res[2..].eq(&v) {
-            panic!("Wrong unsized field value: {:?} != {:?}", &single_unsized_res[2..], &v);
+            panic!(
+                "Wrong unsized field value: {:?} != {:?}",
+                &single_unsized_res[2..],
+                &v
+            );
         }
     }
 
@@ -466,10 +529,13 @@ fn test_scheme_get() {
         panic!("Wrong fields len");
     }
     for i in 0..10 {
-        let field = &fields[i*10..(i+1)*10];
+        let field = &fields[i * 10..(i + 1) * 10];
         let size = u16(&field[0..2]);
         if size != 8 {
-            panic!("Wrong sized field len in get fields test: {} != 8, field: {:?}", size, &field);
+            panic!(
+                "Wrong sized field len in get fields test: {} != 8, field: {:?}",
+                size, &field
+            );
         }
         let value = u64(&field[2..10]);
         if value != (i as u64) {
@@ -482,10 +548,13 @@ fn test_scheme_get() {
         panic!("Wrong fields len");
     }
     for i in 0..5 {
-        let field = &fields[i*12..(i+1)*12];
+        let field = &fields[i * 12..(i + 1) * 12];
         let size = u16(&field[0..2]);
         if size != 10 {
-            panic!("Wrong unsized field len in get unsized fields test: {} != 10, field: {:?}", size, field);
+            panic!(
+                "Wrong unsized field len in get unsized fields test: {} != 10, field: {:?}",
+                size, field
+            );
         }
         let mut v = Vec::with_capacity(10);
         v.extend_from_slice("value12".as_bytes());
@@ -497,22 +566,30 @@ fn test_scheme_get() {
         }
         v.extend_from_slice(str_i.as_bytes());
         if field[2..] != v {
-            panic!("Wrong unsized field value in get unsized fields test: {:?} != {:?}", &field[2..], &v);
+            panic!(
+                "Wrong unsized field value in get unsized fields test: {:?} != {:?}",
+                &field[2..],
+                &v
+            );
         }
     }
 }
 
 #[test]
 fn test_scheme_update() {
-    let mut scheme_to_json: SchemeJSON = SchemeJSON{
+    let mut scheme_to_json: SchemeJSON = SchemeJSON {
         sized_fields: Map::with_capacity(10),
         unsized_fields: Map::with_capacity(100),
     };
     for i in 0..10 {
-        scheme_to_json.sized_fields.insert(i.to_string(), json!("Uint64".to_string()));
+        scheme_to_json
+            .sized_fields
+            .insert(i.to_string(), json!("Uint64".to_string()));
     }
     for i in 10..110 {
-        scheme_to_json.unsized_fields.insert(i.to_string(), json!("String".to_string()));
+        scheme_to_json
+            .unsized_fields
+            .insert(i.to_string(), json!("String".to_string()));
     }
     let scheme_json = serde_json::to_vec_pretty(&scheme_to_json).expect("Can't serialize scheme");
     let scheme = scheme_from_bytes(&scheme_json).expect("Can't deserialize scheme");
@@ -542,7 +619,11 @@ fn test_scheme_update() {
     update_field(&mut bin_value, &scheme, 0, new_value);
     // check that the field have been updated
     if !get_field(&bin_value, &scheme, 0)[2..].eq(new_value) {
-        panic!("Wrong value after update! {:?} != {:?}", &get_field(&bin_value, &scheme, 0)[2..], new_value);
+        panic!(
+            "Wrong value after update! {:?} != {:?}",
+            &get_field(&bin_value, &scheme, 0)[2..],
+            new_value
+        );
     }
     // check that all other fields have not been updated
     if !copy.deref()[8..].eq(&bin_value.deref()[8..]) {
@@ -554,11 +635,17 @@ fn test_scheme_update() {
 
     // check that the field have been updated
     if !get_field(&bin_value, &scheme, 5)[2..].eq(new_value) {
-        panic!("Wrong value after update! {:?} != {:?}", &get_field(&bin_value, &scheme, 5)[2..], new_value);
+        panic!(
+            "Wrong value after update! {:?} != {:?}",
+            &get_field(&bin_value, &scheme, 5)[2..],
+            new_value
+        );
     }
 
     // check that all other fields have not been updated
-    if !copy.deref()[..8*5].eq(&bin_value.deref()[..8*5]) || !copy.deref()[8*6..].eq(&bin_value.deref()[8*6..]) {
+    if !copy.deref()[..8 * 5].eq(&bin_value.deref()[..8 * 5])
+        || !copy.deref()[8 * 6..].eq(&bin_value.deref()[8 * 6..])
+    {
         panic!("Wrong update! All value have been updated!");
     }
 
@@ -569,11 +656,17 @@ fn test_scheme_update() {
 
     // check that the field have been updated
     if !get_field(&bin_value, &scheme, 10)[2..].eq(new_value) {
-        panic!("Wrong value after update! {:?} != {:?}", &get_field(&bin_value, &scheme, 10)[2..], new_value);
+        panic!(
+            "Wrong value after update! {:?} != {:?}",
+            &get_field(&bin_value, &scheme, 10)[2..],
+            new_value
+        );
     }
 
     // check that all other fields have not been updated
-    if !copy.deref()[..8*10].eq(&bin_value.deref()[..8*10]) || !copy.deref()[8*10 + 12..].eq(&bin_value.deref()[8*10 + 12..]) {
+    if !copy.deref()[..8 * 10].eq(&bin_value.deref()[..8 * 10])
+        || !copy.deref()[8 * 10 + 12..].eq(&bin_value.deref()[8 * 10 + 12..])
+    {
         panic!("Wrong update! All value have been updated!");
     }
 
@@ -581,14 +674,21 @@ fn test_scheme_update() {
     let new_value = "1".as_bytes();
     update_field(&mut bin_value, &scheme, 50, new_value);
     if bin_value.len() != copy.len() - 9 {
-        panic!("Wrong update! All value have been updated! Len is {}, must be {}", bin_value.len(), copy.len() - 9);
+        panic!(
+            "Wrong update! All value have been updated! Len is {}, must be {}",
+            bin_value.len(),
+            copy.len() - 9
+        );
     }
 
     // check that the field have been updated
     if !get_field(&bin_value, &scheme, 50)[2..].eq(new_value) {
-        panic!("Wrong value after update! {:?} != {:?}", &get_field(&bin_value, &scheme, 50)[2..], new_value);
+        panic!(
+            "Wrong value after update! {:?} != {:?}",
+            &get_field(&bin_value, &scheme, 50)[2..],
+            new_value
+        );
     }
-
 
     // check that all other fields have not been updated
     for i in 0..110 {
@@ -597,7 +697,12 @@ fn test_scheme_update() {
             if i == 50 {
                 continue;
             }
-            panic!("Field {} have been updated! {:?} != {:?}", i, sized_field, get_field(&copy, &scheme, i));
+            panic!(
+                "Field {} have been updated! {:?} != {:?}",
+                i,
+                sized_field,
+                get_field(&copy, &scheme, i)
+            );
         }
     }
 }

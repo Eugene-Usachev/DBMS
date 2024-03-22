@@ -1,9 +1,11 @@
-use std::fs::File;
-use std::io::{Read, Write};
-use std::net::{Shutdown, TcpStream};
+use std::{
+    io::{Read, Write},
+    net::{Shutdown, TcpStream},
+    fs::File,
+    time::Duration
+};
 #[cfg(not(target_os = "windows"))]
 use std::os::unix::net::UnixStream;
-use std::time::Duration;
 
 pub trait Stream: Read + Write {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize>;

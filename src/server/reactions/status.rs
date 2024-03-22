@@ -1,10 +1,14 @@
-use std::fs::File;
-use std::io::Read;
-use std::sync::Arc;
-use crate::connection::{BufConnection, BufReader, BufWriter, Status};
-use crate::constants::actions;
-use crate::server::server::Server;
-use crate::stream::Stream;
+use std::{
+    fs::File,
+    io::Read,
+    sync::Arc
+};
+use crate::{
+    connection::{BufConnection, BufReader, BufWriter, Status},
+    constants::actions,
+    server::server::Server,
+    stream::Stream
+};
 
 #[inline(always)]
 pub fn ping<'stream, S: Stream, R: BufReader<'stream, S>, W: BufWriter<'stream, S>> (

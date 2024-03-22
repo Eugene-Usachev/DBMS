@@ -1,18 +1,19 @@
-use std::fs::{DirBuilder, File};
-use std::io::{Read, Seek, SeekFrom, Write};
-use std::path::PathBuf;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU32};
-use std::sync::atomic::Ordering::SeqCst;
-use crate::bin_types::{BinKey, BinValue};
-use crate::constants::actions;
-use crate::error;
-use crate::index::Index;
-use crate::scheme::scheme;
-use crate::writers::{LogWriter, SizedWriter};
-use crate::table::table::{Table, TableEngine};
-use crate::utils::bytes::uint;
-use crate::utils::read_more;
+use std::{
+    fs::{DirBuilder, File},
+    io::{Read, Seek, SeekFrom, Write},
+    path::PathBuf,
+    sync::{Arc, atomic::{AtomicBool, AtomicU32, Ordering::SeqCst}},
+};
+use crate::{
+    bin_types::{BinKey, BinValue},
+    constants::actions,
+    error,
+    index::Index,
+    scheme::scheme,
+    writers::{LogWriter, SizedWriter},
+    table::table::{Table, TableEngine},
+    utils::{bytes::uint, read_more},
+};
 
 pub struct InMemoryTable<I: Index<BinKey, BinValue>> {
     persistence_dir_path: PathBuf,

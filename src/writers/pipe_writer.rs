@@ -1,10 +1,12 @@
 #[allow(unused)]
 // TODO: maybe remove? And doesn't work, because cvar sets to true in flush() and doesn't reset. If fix, we have no performance benefits
 
-use std::fs::File;
-use std::io::{BufWriter, Write};
-use std::sync::{Arc, Condvar, Mutex, MutexGuard};
-use std::time::{Duration, Instant};
+use std::{
+    fs::File,
+    io::{BufWriter, Write},
+    sync::{Arc, Condvar, Mutex, MutexGuard},
+    time::{Duration, Instant}
+};
 
 #[allow(dead_code)]
 pub struct PipeWriter {

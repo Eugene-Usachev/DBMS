@@ -1,8 +1,9 @@
-use std::mem;
-use std::sync::RwLock;
+use std::{
+    mem,
+    sync::RwLock
+};
 use ahash::RandomState;
-use crate::index::{Index};
-use crate::index::index::{SIZE, SIZE_U64};
+use crate::index::{Index, index::{SIZE, SIZE_U64}};
 
 
 /// TODO DOESN't WORK!

@@ -1,10 +1,11 @@
-use std::collections::BTreeMap;
-use std::hash::{BuildHasher, Hash, Hasher};
-use std::sync::RwLock;
+use std::{
+    collections::BTreeMap,
+    hash::{BuildHasher, Hash, Hasher},
+    sync::RwLock
+};
 use ahash::RandomState;
 
-use crate::index::Index;
-use crate::index::index::SIZE;
+use crate::index::{Index, index::SIZE};
 
 pub struct TreeInMemoryIndex<K, V>
     where K: Eq + Ord + Hash, V: Eq + Clone

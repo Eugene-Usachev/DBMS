@@ -1,5 +1,8 @@
-use std::hash::{Hash, Hasher};
-use std::ptr;
+use std::{
+    hash::{Hash, Hasher},
+    ptr
+};
+
 
 pub struct BinValue {
     pub ptr: *mut u8

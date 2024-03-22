@@ -1,6 +1,8 @@
-use crate::bin_types::{BinKey, BinValue};
-use crate::scheme::scheme::{get_field, get_fields, Scheme};
-use crate::writers::LogWriter;
+use crate::{
+    bin_types::{BinKey, BinValue},
+    scheme::scheme::{get_field, get_fields, Scheme},
+    writers::LogWriter
+};
 
 pub trait Table: Sync + Send {
     fn engine(&self) -> TableEngine;

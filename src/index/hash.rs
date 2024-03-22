@@ -1,20 +1,25 @@
-use std::collections::HashMap;
-use std::hash::{BuildHasher, Hash, Hasher};
-use std::sync::RwLock;
+use crate::index::{index::SIZE, Index};
 use ahash::RandomState;
-use crate::index::Index;
-use crate::index::index::SIZE;
+use std::{
+    collections::HashMap,
+    hash::{BuildHasher, Hash, Hasher},
+    sync::RwLock,
+};
 
 pub struct HashInMemoryIndex<K, V>
-    where K: Eq + Hash, V: Eq + Clone
+where
+    K: Eq + Hash,
+    V: Eq + Clone,
 {
     pub data: Box<[RwLock<HashMap<K, V>>]>,
     pub lob: usize,
-    pub state: RandomState
+    pub state: RandomState,
 }
 
 impl<K, V> HashInMemoryIndex<K, V>
-    where K: Eq + Hash, V: Eq + Clone
+where
+    K: Eq + Hash,
+    V: Eq + Clone,
 {
     pub fn new() -> Self {
         let state = RandomState::new();
@@ -27,7 +32,7 @@ impl<K, V> HashInMemoryIndex<K, V>
         Self {
             data: vec.into_boxed_slice(),
             state,
-            lob
+            lob,
         }
     }
     #[inline(always)]
@@ -38,8 +43,10 @@ impl<K, V> HashInMemoryIndex<K, V>
     }
 }
 
-impl<K, V> Index<K, V, > for HashInMemoryIndex<K, V>
-    where K: Eq + Hash, V: Eq + Clone
+impl<K, V> Index<K, V> for HashInMemoryIndex<K, V>
+where
+    K: Eq + Hash,
+    V: Eq + Clone,
 {
     #[inline(always)]
     fn insert(&self, key: K, value: V) -> bool {
@@ -53,15 +60,25 @@ impl<K, V> Index<K, V, > for HashInMemoryIndex<K, V>
 
     #[inline(always)]
     fn set(&self, key: K, value: V) -> Option<V> {
-        self.data[self.get_number(&key)].write().unwrap().insert(key, value)
+        self.data[self.get_number(&key)]
+            .write()
+            .unwrap()
+            .insert(key, value)
     }
     #[inline(always)]
     fn get(&self, key: &K) -> Option<V> {
-        self.data[self.get_number(key)].read().unwrap().get(key).cloned()
+        self.data[self.get_number(key)]
+            .read()
+            .unwrap()
+            .get(key)
+            .cloned()
     }
 
     #[inline(always)]
-    fn get_and_modify<F>(&self, key: &K, mut f: F) -> Option<V> where F: FnMut(&mut V) {
+    fn get_and_modify<F>(&self, key: &K, mut f: F) -> Option<V>
+    where
+        F: FnMut(&mut V),
+    {
         let mut shard = self.data[self.get_number(key)].write().unwrap();
         let Some(res) = shard.get_mut(key) else {
             return None;
@@ -76,7 +93,10 @@ impl<K, V> Index<K, V, > for HashInMemoryIndex<K, V>
     }
     #[inline(always)]
     fn contains(&self, key: &K) -> bool {
-        self.data[self.get_number(key)].read().unwrap().contains_key(key)
+        self.data[self.get_number(key)]
+            .read()
+            .unwrap()
+            .contains_key(key)
     }
 
     #[inline(always)]
@@ -104,7 +124,8 @@ impl<K, V> Index<K, V, > for HashInMemoryIndex<K, V>
 
     #[inline(always)]
     fn for_each<F>(&self, f: F)
-        where F: Fn(&K, &V)
+    where
+        F: Fn(&K, &V),
     {
         for i in 0..self.data.len() {
             for (k, v) in self.data[i].read().unwrap().iter() {
@@ -115,7 +136,8 @@ impl<K, V> Index<K, V, > for HashInMemoryIndex<K, V>
 
     #[inline(always)]
     fn for_each_mut<F>(&self, mut f: F)
-        where F: FnMut(&K, &mut V)
+    where
+        F: FnMut(&K, &mut V),
     {
         for i in 0..self.data.len() {
             for (k, v) in self.data[i].write().unwrap().iter_mut() {
@@ -126,7 +148,8 @@ impl<K, V> Index<K, V, > for HashInMemoryIndex<K, V>
 
     #[inline(always)]
     fn retain<F>(&self, f: F)
-        where F: FnMut(&K, &mut V) -> bool + Clone
+    where
+        F: FnMut(&K, &mut V) -> bool + Clone,
     {
         for shard in self.data.iter() {
             let mut shard = shard.write().unwrap();
@@ -136,9 +159,15 @@ impl<K, V> Index<K, V, > for HashInMemoryIndex<K, V>
 }
 
 unsafe impl<K, V> Send for HashInMemoryIndex<K, V>
-    where K: Eq + Hash, V: Eq + Clone
-{}
+where
+    K: Eq + Hash,
+    V: Eq + Clone,
+{
+}
 
 unsafe impl<K, V> Sync for HashInMemoryIndex<K, V>
-    where K: Eq + Hash, V: Eq + Clone
-{}
+where
+    K: Eq + Hash,
+    V: Eq + Clone,
+{
+}

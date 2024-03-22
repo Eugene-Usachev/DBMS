@@ -1,24 +1,33 @@
-use std::sync::atomic::{AtomicU32, AtomicU64};
-use std::sync::atomic::Ordering::SeqCst;
-use std::sync::{Arc, RwLock, RwLockWriteGuard};
-use std::{env, thread};
-use crate::utils::cells::UnsafeCell;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-use crate::table::table::{Table, TableEngine};
-use std::fs::{File, OpenOptions};
-use std::io::{ErrorKind, Read, Write};
-use std::path::PathBuf;
-use crate::bin_types::{BinKey, BinValue};
-use crate::constants::actions::*;
-use crate::index::{HashInMemoryIndex, Index};
-use crate::{error, info, success, warn};
-use crate::scheme::scheme::{empty_scheme, Scheme, scheme_from_bytes};
-use crate::table::cache::CacheTable;
-use crate::table::in_memory::InMemoryTable;
-use crate::table::on_disk::OnDiskTable;
-use crate::utils::bytes::uint;
-use crate::utils::read_more;
-use crate::writers::{LogFile};
+use crate::{
+    bin_types::{BinKey, BinValue},
+    constants::actions::*,
+    index::{HashInMemoryIndex, Index},
+    scheme::scheme::{empty_scheme, scheme_from_bytes, Scheme},
+    table::{
+        cache::CacheTable,
+        in_memory::InMemoryTable,
+        on_disk::OnDiskTable,
+        table::{Table, TableEngine},
+    },
+    utils::{
+        bytes::uint,
+        cells::UnsafeCell,
+        read_more,
+    },
+    writers::LogFile,
+    error, info, success, warn,
+};
+use std::{
+    fs::{File, OpenOptions},
+    io::{ErrorKind, Read, Write},
+    path::PathBuf,
+    sync::{
+    atomic::{AtomicU32, AtomicU64, Ordering::SeqCst},
+    Arc, RwLock, RwLockWriteGuard,
+    },
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    env, thread,
+};
 
 pub static NOW_MINUTES: AtomicU64 = AtomicU64::new(0);
 
@@ -48,12 +57,15 @@ pub struct Storage {
 
 impl Storage {
     pub fn new(persistence_dir_path: PathBuf) -> Self {
-        std::fs::create_dir_all(&persistence_dir_path).expect("[Error] Failed to create the persistence directory");
+        std::fs::create_dir_all(&persistence_dir_path)
+            .expect("[Error] Failed to create the persistence directory");
         let dump_interval = match env::var("DUMP_INTERVAL") {
             Ok(value) => {
                 info!("The dump interval was set to: {} minutes using the environment variable \"DUMP_INTERVAL\"", value);
-                value.parse().expect("[Panic] The dump interval must be a number!")
-            },
+                value
+                    .parse()
+                    .expect("[Panic] The dump interval must be a number!")
+            }
             Err(_) => {
                 info!("The dump interval was not set using the environment variable \"DUMP_INTERVAL\", setting it to 60 minutes");
                 60
@@ -61,7 +73,9 @@ impl Storage {
         };
 
         let number_of_dumps_file_path: PathBuf = persistence_dir_path.join("number_of_dumps.bin");
-        let file = OpenOptions::new().read(true).open(number_of_dumps_file_path.clone());
+        let file = OpenOptions::new()
+            .read(true)
+            .open(number_of_dumps_file_path.clone());
         let number_of_dumps;
         if file.is_err() {
             number_of_dumps = 0;
@@ -79,9 +93,13 @@ impl Storage {
 
         let file_name = "tables.bin";
         let table_configs_file_path: PathBuf = persistence_dir_path.join(file_name);
-        OpenOptions::new().append(true).create(true).open(table_configs_file_path.clone()).expect("[Error] Failed to open table configs file");
+        OpenOptions::new()
+            .append(true)
+            .create(true)
+            .open(table_configs_file_path.clone())
+            .expect("[Error] Failed to open table configs file");
         let log_number = Self::get_log_file_number(number_of_dumps_file_path.clone());
-        let file_name = format!("log{log_number}.bin", );
+        let file_name = format!("log{log_number}.bin",);
         let path: PathBuf = persistence_dir_path.join(file_name);
         let log_file = OpenOptions::new()
             .read(true)
@@ -101,7 +119,7 @@ impl Storage {
             log_file,
             table_configs_file_path,
             number_of_dumps_file_path,
-            dump_interval
+            dump_interval,
         }
     }
 
@@ -114,7 +132,13 @@ impl Storage {
             .create(true)
             .open(self.number_of_dumps_file_path.clone())
             .unwrap();
-        file.write_all(&[number_of_dumps as u8, (number_of_dumps >> 8) as u8, (number_of_dumps >> 16) as u8, (number_of_dumps >> 24) as u8]).unwrap();
+        file.write_all(&[
+            number_of_dumps as u8,
+            (number_of_dumps >> 8) as u8,
+            (number_of_dumps >> 16) as u8,
+            (number_of_dumps >> 24) as u8,
+        ])
+        .unwrap();
 
         {
             let file_name = format!("log{}.bin", number_of_dumps);
@@ -131,24 +155,45 @@ impl Storage {
                     let engine = table.engine();
                     match engine {
                         TableEngine::InMemory => {
-                            self.write_in_memory_table_on_disk(&table.name(), number, table.is_it_logging(), &table.user_scheme());
+                            self.write_in_memory_table_on_disk(
+                                &table.name(),
+                                number,
+                                table.is_it_logging(),
+                                &table.user_scheme(),
+                            );
                         }
                         TableEngine::OnDisk => {
-                            self.write_on_disk_table_on_disk(&table.name(), number, &table.user_scheme());
+                            self.write_on_disk_table_on_disk(
+                                &table.name(),
+                                number,
+                                &table.user_scheme(),
+                            );
                         }
                         TableEngine::CACHE => {
-                            self.write_cache_table_on_disk(&table.name(), number, table.is_it_logging(), table.cache_duration(), &table.user_scheme());
+                            self.write_cache_table_on_disk(
+                                &table.name(),
+                                number,
+                                table.is_it_logging(),
+                                table.cache_duration(),
+                                &table.user_scheme(),
+                            );
                         }
                     }
                 }
                 table.dump();
-                file.write_all(&[number as u8, (number >> 8) as u8, (number >> 16) as u8, (number >> 24) as u8]).unwrap();
+                file.write_all(&[
+                    number as u8,
+                    (number >> 8) as u8,
+                    (number >> 16) as u8,
+                    (number >> 24) as u8,
+                ])
+                .unwrap();
             }
         });
         join.join().unwrap();
 
-        self.last_tables_count.store(self.tables.get().len() as u32, SeqCst);
-
+        self.last_tables_count
+            .store(self.tables.get().len() as u32, SeqCst);
 
         let file_name = format!("log{}.bin", old_number_of_dumps);
         let path: PathBuf = self.persistence_dir_path.join(file_name);
@@ -160,7 +205,9 @@ impl Storage {
 
         let since_the_epoch = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .expect("Time went backwards").as_secs() / 60;
+            .expect("Time went backwards")
+            .as_secs()
+            / 60;
 
         NOW_MINUTES.store(since_the_epoch, SeqCst);
 
@@ -184,7 +231,9 @@ impl Storage {
 
                 let since_the_epoch = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
-                    .expect("Time went backwards").as_secs() / 60;
+                    .expect("Time went backwards")
+                    .as_secs()
+                    / 60;
                 NOW_MINUTES.store(since_the_epoch, SeqCst);
 
                 tokio::spawn(async move {
@@ -217,7 +266,10 @@ impl Storage {
         file.write_all(bin_config).unwrap();
     }
 
-    fn insert_table_name_and_get_number(tables_names: &mut RwLockWriteGuard<Vec<String>>, name: &str) -> (usize, bool) {
+    fn insert_table_name_and_get_number(
+        tables_names: &mut RwLockWriteGuard<Vec<String>>,
+        name: &str,
+    ) -> (usize, bool) {
         let len = tables_names.len();
         for i in 0..len {
             if tables_names[i] == name {
@@ -234,7 +286,7 @@ impl Storage {
         index: I,
         is_it_logging: bool,
         scheme: Scheme,
-        user_scheme: &[u8]
+        user_scheme: &[u8],
     ) -> usize {
         let mut lock = self.tables_names.write().unwrap();
         let (number, is_exist) = Self::insert_table_name_and_get_number(&mut lock, &name);
@@ -249,7 +301,7 @@ impl Storage {
             is_it_logging,
             self.number_of_dumps.clone(),
             scheme,
-            Box::from(user_scheme)
+            Box::from(user_scheme),
         );
         self.tables.get_mut().push(Box::new(table));
 
@@ -258,10 +310,22 @@ impl Storage {
         return number;
     }
 
-    fn write_in_memory_table_on_disk(&'static self, name: &str, number: usize, is_it_logging: bool, user_scheme: &[u8]) {
+    fn write_in_memory_table_on_disk(
+        &'static self,
+        name: &str,
+        number: usize,
+        is_it_logging: bool,
+        user_scheme: &[u8],
+    ) {
         let name_len = name.len();
         let mut buf = Vec::with_capacity(8 + name_len + user_scheme.len());
-        buf.extend_from_slice(&[CREATE_TABLE_IN_MEMORY, number as u8, (number >> 8) as u8, name_len as u8, (name_len >> 8) as u8]);
+        buf.extend_from_slice(&[
+            CREATE_TABLE_IN_MEMORY,
+            number as u8,
+            (number >> 8) as u8,
+            name_len as u8,
+            (name_len >> 8) as u8,
+        ]);
         buf.extend_from_slice(name.as_bytes());
         // TODO: index from log
         let is_it_logging_byte = if is_it_logging { 1 } else { 0 };
@@ -276,7 +340,7 @@ impl Storage {
         name: String,
         index: I,
         scheme: Scheme,
-        user_scheme: &[u8]
+        user_scheme: &[u8],
     ) -> usize {
         let mut lock = self.tables_names.write().unwrap();
         let (number, is_exist) = Self::insert_table_name_and_get_number(&mut lock, &name);
@@ -289,7 +353,7 @@ impl Storage {
             512,
             index,
             scheme,
-            Box::from(user_scheme)
+            Box::from(user_scheme),
         );
         self.tables.get_mut().push(Box::new(table));
 
@@ -301,7 +365,13 @@ impl Storage {
     fn write_on_disk_table_on_disk(&'static self, name: &str, number: usize, user_scheme: &[u8]) {
         let name_len = name.len();
         let mut buf = Vec::with_capacity(7 + name_len + user_scheme.len());
-        buf.extend_from_slice(&[CREATE_TABLE_ON_DISK, number as u8, (number >> 8) as u8, name_len as u8, (name_len >> 8) as u8]);
+        buf.extend_from_slice(&[
+            CREATE_TABLE_ON_DISK,
+            number as u8,
+            (number >> 8) as u8,
+            name_len as u8,
+            (name_len >> 8) as u8,
+        ]);
         buf.extend_from_slice(name.as_bytes());
         buf.extend_from_slice(&[user_scheme.len() as u8, (user_scheme.len() >> 8) as u8]);
         buf.extend_from_slice(user_scheme);
@@ -316,7 +386,7 @@ impl Storage {
         cache_duration: u64,
         is_it_logging: bool,
         scheme: Scheme,
-        user_scheme: &[u8]
+        user_scheme: &[u8],
     ) -> usize {
         let mut lock = self.tables_names.write().unwrap();
         let (number, is_exist) = Self::insert_table_name_and_get_number(&mut lock, &name);
@@ -352,7 +422,13 @@ impl Storage {
     ) {
         let name_len = name.len();
         let mut buf = Vec::with_capacity(16 + name_len + user_scheme.len());
-        buf.extend_from_slice(&[CREATE_TABLE_CACHE, number as u8, (number >> 8) as u8, name_len as u8, (name_len >> 8) as u8]);
+        buf.extend_from_slice(&[
+            CREATE_TABLE_CACHE,
+            number as u8,
+            (number >> 8) as u8,
+            name_len as u8,
+            (name_len >> 8) as u8,
+        ]);
         buf.extend_from_slice(name.as_bytes());
         // TODO: index from log
         let is_it_logging_byte = if is_it_logging { 1 } else { 0 };
@@ -401,11 +477,12 @@ impl Storage {
                 if total_read == file_len {
                     break;
                 }
-                let mut bytes_read = file.read(&mut buf[offset_last_record..]).expect("Failed to read");
+                let mut bytes_read = file
+                    .read(&mut buf[offset_last_record..])
+                    .expect("Failed to read");
                 if bytes_read == 0 {
                     break;
                 }
-
 
                 bytes_read += offset_last_record;
                 offset = 0;
@@ -422,7 +499,12 @@ impl Storage {
                     match table_engine {
                         CREATE_TABLE_IN_MEMORY => {
                             if offset + 2 > bytes_read {
-                                read_more(&mut buf, start_offset, bytes_read, &mut offset_last_record);
+                                read_more(
+                                    &mut buf,
+                                    start_offset,
+                                    bytes_read,
+                                    &mut offset_last_record,
+                                );
                                 continue 'read;
                             }
                             // TODO: think about safe of pushing
@@ -431,7 +513,12 @@ impl Storage {
                             offset += 2;
 
                             if offset + 2 > bytes_read {
-                                read_more(&mut buf, start_offset, bytes_read, &mut offset_last_record);
+                                read_more(
+                                    &mut buf,
+                                    start_offset,
+                                    bytes_read,
+                                    &mut offset_last_record,
+                                );
                                 continue 'read;
                             }
 
@@ -439,7 +526,12 @@ impl Storage {
                             offset += 2;
 
                             if offset + name_len as usize > bytes_read {
-                                read_more(&mut buf, start_offset, bytes_read, &mut offset_last_record);
+                                read_more(
+                                    &mut buf,
+                                    start_offset,
+                                    bytes_read,
+                                    &mut offset_last_record,
+                                );
                                 continue 'read;
                             }
 
@@ -450,7 +542,12 @@ impl Storage {
                             let name = String::from_utf8(name).unwrap();
 
                             if offset + 1 > bytes_read {
-                                read_more(&mut buf, start_offset, bytes_read, &mut offset_last_record);
+                                read_more(
+                                    &mut buf,
+                                    start_offset,
+                                    bytes_read,
+                                    &mut offset_last_record,
+                                );
                                 continue 'read;
                             }
 
@@ -458,7 +555,12 @@ impl Storage {
                             offset += 1;
 
                             if offset + 2 > bytes_read {
-                                read_more(&mut buf, start_offset, bytes_read, &mut offset_last_record);
+                                read_more(
+                                    &mut buf,
+                                    start_offset,
+                                    bytes_read,
+                                    &mut offset_last_record,
+                                );
                                 continue 'read;
                             }
 
@@ -467,7 +569,12 @@ impl Storage {
                             scheme_offset = offset;
 
                             if offset + scheme_len as usize > bytes_read {
-                                read_more(&mut buf, start_offset, bytes_read, &mut offset_last_record);
+                                read_more(
+                                    &mut buf,
+                                    start_offset,
+                                    bytes_read,
+                                    &mut offset_last_record,
+                                );
                                 continue 'read;
                             }
                             offset += scheme_len as usize;
@@ -485,11 +592,23 @@ impl Storage {
                                 }
                             }
 
-                            Self::create_in_memory_table(self, name, HashInMemoryIndex::new(), is_it_logging, scheme.unwrap(), user_scheme);
+                            Self::create_in_memory_table(
+                                self,
+                                name,
+                                HashInMemoryIndex::new(),
+                                is_it_logging,
+                                scheme.unwrap(),
+                                user_scheme,
+                            );
                         }
                         CREATE_TABLE_ON_DISK => {
                             if offset + 2 > bytes_read {
-                                read_more(&mut buf, start_offset, bytes_read, &mut offset_last_record);
+                                read_more(
+                                    &mut buf,
+                                    start_offset,
+                                    bytes_read,
+                                    &mut offset_last_record,
+                                );
                                 continue 'read;
                             }
                             // TODO: think about safe of pushing
@@ -498,7 +617,12 @@ impl Storage {
                             offset += 2;
 
                             if offset + 2 > bytes_read {
-                                read_more(&mut buf, start_offset, bytes_read, &mut offset_last_record);
+                                read_more(
+                                    &mut buf,
+                                    start_offset,
+                                    bytes_read,
+                                    &mut offset_last_record,
+                                );
                                 continue 'read;
                             }
 
@@ -506,7 +630,12 @@ impl Storage {
                             offset += 2;
 
                             if offset + name_len as usize > bytes_read {
-                                read_more(&mut buf, start_offset, bytes_read, &mut offset_last_record);
+                                read_more(
+                                    &mut buf,
+                                    start_offset,
+                                    bytes_read,
+                                    &mut offset_last_record,
+                                );
                                 continue 'read;
                             }
 
@@ -517,7 +646,12 @@ impl Storage {
                             let name = String::from_utf8(name).unwrap();
 
                             if offset + 2 > bytes_read {
-                                read_more(&mut buf, start_offset, bytes_read, &mut offset_last_record);
+                                read_more(
+                                    &mut buf,
+                                    start_offset,
+                                    bytes_read,
+                                    &mut offset_last_record,
+                                );
                                 continue 'read;
                             }
 
@@ -526,7 +660,12 @@ impl Storage {
                             scheme_offset = offset;
 
                             if offset + scheme_len as usize > bytes_read {
-                                read_more(&mut buf, start_offset, bytes_read, &mut offset_last_record);
+                                read_more(
+                                    &mut buf,
+                                    start_offset,
+                                    bytes_read,
+                                    &mut offset_last_record,
+                                );
                                 continue 'read;
                             }
                             offset += scheme_len as usize;
@@ -544,11 +683,22 @@ impl Storage {
                                 }
                             }
 
-                            Self::create_on_disk_table(self, name, HashInMemoryIndex::new(), scheme.unwrap(), user_scheme);
+                            Self::create_on_disk_table(
+                                self,
+                                name,
+                                HashInMemoryIndex::new(),
+                                scheme.unwrap(),
+                                user_scheme,
+                            );
                         }
                         CREATE_TABLE_CACHE => {
                             if offset + 2 > bytes_read {
-                                read_more(&mut buf, start_offset, bytes_read, &mut offset_last_record);
+                                read_more(
+                                    &mut buf,
+                                    start_offset,
+                                    bytes_read,
+                                    &mut offset_last_record,
+                                );
                                 continue 'read;
                             }
                             // TODO: think about safe of pushing
@@ -557,7 +707,12 @@ impl Storage {
                             offset += 2;
 
                             if offset + 2 > bytes_read {
-                                read_more(&mut buf, start_offset, bytes_read, &mut offset_last_record);
+                                read_more(
+                                    &mut buf,
+                                    start_offset,
+                                    bytes_read,
+                                    &mut offset_last_record,
+                                );
                                 continue 'read;
                             }
 
@@ -565,7 +720,12 @@ impl Storage {
                             offset += 2;
 
                             if offset + name_len as usize > bytes_read {
-                                read_more(&mut buf, start_offset, bytes_read, &mut offset_last_record);
+                                read_more(
+                                    &mut buf,
+                                    start_offset,
+                                    bytes_read,
+                                    &mut offset_last_record,
+                                );
                                 continue 'read;
                             }
 
@@ -576,7 +736,12 @@ impl Storage {
                             let name = String::from_utf8(name).unwrap();
 
                             if offset + 1 > bytes_read {
-                                read_more(&mut buf, start_offset, bytes_read, &mut offset_last_record);
+                                read_more(
+                                    &mut buf,
+                                    start_offset,
+                                    bytes_read,
+                                    &mut offset_last_record,
+                                );
                                 continue 'read;
                             }
 
@@ -584,14 +749,31 @@ impl Storage {
                             offset += 1;
 
                             if offset + 8 > bytes_read {
-                                read_more(&mut buf, start_offset, bytes_read, &mut offset_last_record);
+                                read_more(
+                                    &mut buf,
+                                    start_offset,
+                                    bytes_read,
+                                    &mut offset_last_record,
+                                );
                                 continue 'read;
                             }
-                            cache_duration = (buf[offset + 7] as u64) << 56 | (buf[offset + 6] as u64) << 48 | (buf[offset + 5] as u64) << 40 | (buf[offset + 4] as u64) << 32 | (buf[offset + 3] as u64) << 24 | (buf[offset + 2] as u64) << 16 | (buf[offset + 1] as u64) << 8 | (buf[offset] as u64);
+                            cache_duration = (buf[offset + 7] as u64) << 56
+                                | (buf[offset + 6] as u64) << 48
+                                | (buf[offset + 5] as u64) << 40
+                                | (buf[offset + 4] as u64) << 32
+                                | (buf[offset + 3] as u64) << 24
+                                | (buf[offset + 2] as u64) << 16
+                                | (buf[offset + 1] as u64) << 8
+                                | (buf[offset] as u64);
                             offset += 8;
 
                             if offset + 2 > bytes_read {
-                                read_more(&mut buf, start_offset, bytes_read, &mut offset_last_record);
+                                read_more(
+                                    &mut buf,
+                                    start_offset,
+                                    bytes_read,
+                                    &mut offset_last_record,
+                                );
                                 continue 'read;
                             }
 
@@ -600,7 +782,12 @@ impl Storage {
                             scheme_offset = offset;
 
                             if offset + scheme_len as usize > bytes_read {
-                                read_more(&mut buf, start_offset, bytes_read, &mut offset_last_record);
+                                read_more(
+                                    &mut buf,
+                                    start_offset,
+                                    bytes_read,
+                                    &mut offset_last_record,
+                                );
                                 continue 'read;
                             }
                             offset += scheme_len as usize;
@@ -618,7 +805,15 @@ impl Storage {
                                 }
                             }
 
-                            Self::create_cache_table(self, name, HashInMemoryIndex::new(), cache_duration, is_it_logging, scheme.unwrap(), user_scheme);
+                            Self::create_cache_table(
+                                self,
+                                name,
+                                HashInMemoryIndex::new(),
+                                cache_duration,
+                                is_it_logging,
+                                scheme.unwrap(),
+                                user_scheme,
+                            );
                         }
                         _ => {
                             panic!("Unknown engine: {}", table_engine);
@@ -635,7 +830,8 @@ impl Storage {
         let mut joins = Vec::with_capacity((tables).len());
         for table in tables.iter_mut() {
             unsafe {
-                let table_ptr = std::mem::transmute::<&mut Box<dyn Table>, &'static mut Box<dyn Table>>(table);
+                let table_ptr =
+                    std::mem::transmute::<&mut Box<dyn Table>, &'static mut Box<dyn Table>>(table);
                 joins.push(thread::spawn(move || {
                     table_ptr.rise();
                 }));
@@ -690,11 +886,12 @@ impl Storage {
                 if total_read == file_len {
                     break;
                 }
-                let mut bytes_read = input.read(&mut chunk[offset_last_record..]).expect("Failed to read");
+                let mut bytes_read = input
+                    .read(&mut chunk[offset_last_record..])
+                    .expect("Failed to read");
                 if bytes_read == 0 {
                     break;
                 }
-
 
                 bytes_read += offset_last_record;
                 offset = 0;
@@ -702,7 +899,12 @@ impl Storage {
 
                 loop {
                     if offset + 1 > bytes_read {
-                        read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
+                        read_more(
+                            &mut chunk,
+                            start_offset,
+                            bytes_read,
+                            &mut offset_last_record,
+                        );
                         continue 'read;
                     }
                     start_offset = offset;
@@ -714,21 +916,36 @@ impl Storage {
                     match action {
                         INSERT => {
                             if offset + 2 > bytes_read {
-                                read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
+                                read_more(
+                                    &mut chunk,
+                                    start_offset,
+                                    bytes_read,
+                                    &mut offset_last_record,
+                                );
                                 continue 'read;
                             }
                             number = (chunk[offset + 1] as u16) << 8 | (chunk[offset] as u16);
                             offset += 2;
 
                             if offset + number as usize + 1 > bytes_read {
-                                read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
+                                read_more(
+                                    &mut chunk,
+                                    start_offset,
+                                    bytes_read,
+                                    &mut offset_last_record,
+                                );
                                 continue 'read;
                             }
                             kl = chunk[offset] as u32;
                             offset += 1;
                             if kl == 255 {
                                 if offset + 2 > bytes_read {
-                                    read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
+                                    read_more(
+                                        &mut chunk,
+                                        start_offset,
+                                        bytes_read,
+                                        &mut offset_last_record,
+                                    );
                                     continue 'read;
                                 }
                                 kl = (chunk[offset + 1] as u32) << 8 | (chunk[offset] as u32);
@@ -736,7 +953,12 @@ impl Storage {
                             }
 
                             if offset + kl as usize + 2 /*for vl*/ > bytes_read {
-                                read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
+                                read_more(
+                                    &mut chunk,
+                                    start_offset,
+                                    bytes_read,
+                                    &mut offset_last_record,
+                                );
                                 continue 'read;
                             }
                             key_offset = offset;
@@ -746,39 +968,70 @@ impl Storage {
                             offset += 2;
                             if vl == 65535 {
                                 if offset + 4 > bytes_read {
-                                    read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
+                                    read_more(
+                                        &mut chunk,
+                                        start_offset,
+                                        bytes_read,
+                                        &mut offset_last_record,
+                                    );
                                     continue 'read;
                                 }
-                                vl = (chunk[offset + 3] as u32) << 24 | (chunk[offset + 2] as u32) << 16 | (chunk[offset + 1] as u32) << 8 | (chunk[offset] as u32);
+                                vl = (chunk[offset + 3] as u32) << 24
+                                    | (chunk[offset + 2] as u32) << 16
+                                    | (chunk[offset + 1] as u32) << 8
+                                    | (chunk[offset] as u32);
                                 offset += 4;
                             }
 
                             if offset + vl as usize > bytes_read {
-                                read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
+                                read_more(
+                                    &mut chunk,
+                                    start_offset,
+                                    bytes_read,
+                                    &mut offset_last_record,
+                                );
                                 continue 'read;
                             }
                             value_offset = offset;
                             offset += vl as usize;
 
-                            tables[number as usize].insert_without_log(BinKey::new(&chunk[key_offset..key_offset+kl as usize]), BinValue::new(&chunk[value_offset..offset]));
+                            tables[number as usize].insert_without_log(
+                                BinKey::new(&chunk[key_offset..key_offset + kl as usize]),
+                                BinValue::new(&chunk[value_offset..offset]),
+                            );
                         }
                         SET => {
                             if offset + 2 > bytes_read {
-                                read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
+                                read_more(
+                                    &mut chunk,
+                                    start_offset,
+                                    bytes_read,
+                                    &mut offset_last_record,
+                                );
                                 continue 'read;
                             }
                             number = (chunk[offset + 1] as u16) << 8 | (chunk[offset] as u16);
                             offset += 2;
 
                             if offset + number as usize + 1 > bytes_read {
-                                read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
+                                read_more(
+                                    &mut chunk,
+                                    start_offset,
+                                    bytes_read,
+                                    &mut offset_last_record,
+                                );
                                 continue 'read;
                             }
                             kl = chunk[offset] as u32;
                             offset += 1;
                             if kl == 255 {
                                 if offset + 2 > bytes_read {
-                                    read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
+                                    read_more(
+                                        &mut chunk,
+                                        start_offset,
+                                        bytes_read,
+                                        &mut offset_last_record,
+                                    );
                                     continue 'read;
                                 }
                                 kl = (chunk[offset + 1] as u32) << 8 | (chunk[offset] as u32);
@@ -786,7 +1039,12 @@ impl Storage {
                             }
 
                             if offset + kl as usize + 2 /*for vl*/ > bytes_read {
-                                read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
+                                read_more(
+                                    &mut chunk,
+                                    start_offset,
+                                    bytes_read,
+                                    &mut offset_last_record,
+                                );
                                 continue 'read;
                             }
                             key_offset = offset;
@@ -796,39 +1054,70 @@ impl Storage {
                             offset += 2;
                             if vl == 65535 {
                                 if offset + 4 > bytes_read {
-                                    read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
+                                    read_more(
+                                        &mut chunk,
+                                        start_offset,
+                                        bytes_read,
+                                        &mut offset_last_record,
+                                    );
                                     continue 'read;
                                 }
-                                vl = (chunk[offset + 3] as u32) << 24 | (chunk[offset + 2] as u32) << 16 | (chunk[offset + 1] as u32) << 8 | (chunk[offset] as u32);
+                                vl = (chunk[offset + 3] as u32) << 24
+                                    | (chunk[offset + 2] as u32) << 16
+                                    | (chunk[offset + 1] as u32) << 8
+                                    | (chunk[offset] as u32);
                                 offset += 4;
                             }
 
                             if offset + vl as usize > bytes_read {
-                                read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
+                                read_more(
+                                    &mut chunk,
+                                    start_offset,
+                                    bytes_read,
+                                    &mut offset_last_record,
+                                );
                                 continue 'read;
                             }
                             value_offset = offset;
                             offset += vl as usize;
 
-                            tables[number as usize].set_without_log(BinKey::new(&chunk[key_offset..key_offset+kl as usize]), BinValue::new(&chunk[value_offset..offset]));
+                            tables[number as usize].set_without_log(
+                                BinKey::new(&chunk[key_offset..key_offset + kl as usize]),
+                                BinValue::new(&chunk[value_offset..offset]),
+                            );
                         }
                         DELETE => {
                             if offset + 2 > bytes_read {
-                                read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
+                                read_more(
+                                    &mut chunk,
+                                    start_offset,
+                                    bytes_read,
+                                    &mut offset_last_record,
+                                );
                                 continue 'read;
                             }
                             number = (chunk[offset + 1] as u16) << 8 | (chunk[offset] as u16);
                             offset += 2;
 
                             if offset + number as usize + 1 > bytes_read {
-                                read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
+                                read_more(
+                                    &mut chunk,
+                                    start_offset,
+                                    bytes_read,
+                                    &mut offset_last_record,
+                                );
                                 continue 'read;
                             }
                             kl = chunk[offset] as u32;
                             offset += 1;
                             if kl == 255 {
                                 if offset + 2 > bytes_read {
-                                    read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
+                                    read_more(
+                                        &mut chunk,
+                                        start_offset,
+                                        bytes_read,
+                                        &mut offset_last_record,
+                                    );
                                     continue 'read;
                                 }
                                 kl = (chunk[offset + 1] as u32) << 8 | (chunk[offset] as u32);
@@ -836,17 +1125,29 @@ impl Storage {
                             }
 
                             if offset + kl as usize > bytes_read {
-                                read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
+                                read_more(
+                                    &mut chunk,
+                                    start_offset,
+                                    bytes_read,
+                                    &mut offset_last_record,
+                                );
                                 continue 'read;
                             }
                             key_offset = offset;
                             offset += kl as usize;
 
-                            tables[number as usize].delete_without_log(&BinKey::new(&chunk[key_offset..key_offset+kl as usize]));
+                            tables[number as usize].delete_without_log(&BinKey::new(
+                                &chunk[key_offset..key_offset + kl as usize],
+                            ));
                         }
                         CREATE_TABLE_IN_MEMORY => {
                             if offset + 2 > bytes_read {
-                                read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
+                                read_more(
+                                    &mut chunk,
+                                    start_offset,
+                                    bytes_read,
+                                    &mut offset_last_record,
+                                );
                                 continue 'read;
                             }
                             // TODO: think about safe of pushing
@@ -854,7 +1155,12 @@ impl Storage {
                             offset += 2;
 
                             if offset + 1 > bytes_read {
-                                read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
+                                read_more(
+                                    &mut chunk,
+                                    start_offset,
+                                    bytes_read,
+                                    &mut offset_last_record,
+                                );
                                 continue 'read;
                             }
 
@@ -862,7 +1168,12 @@ impl Storage {
                             offset += 1;
 
                             if offset + 2 > bytes_read {
-                                read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
+                                read_more(
+                                    &mut chunk,
+                                    start_offset,
+                                    bytes_read,
+                                    &mut offset_last_record,
+                                );
                                 continue 'read;
                             }
 
@@ -870,7 +1181,12 @@ impl Storage {
                             offset += 2;
 
                             if offset + name_len as usize > bytes_read {
-                                read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
+                                read_more(
+                                    &mut chunk,
+                                    start_offset,
+                                    bytes_read,
+                                    &mut offset_last_record,
+                                );
                                 continue 'read;
                             }
                             name_offset = offset;
@@ -880,7 +1196,12 @@ impl Storage {
                             let name = String::from_utf8(name).unwrap();
 
                             if offset + 2 > bytes_read {
-                                read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
+                                read_more(
+                                    &mut chunk,
+                                    start_offset,
+                                    bytes_read,
+                                    &mut offset_last_record,
+                                );
                                 continue 'read;
                             }
 
@@ -889,7 +1210,12 @@ impl Storage {
                             scheme_offset = offset;
 
                             if offset + scheme_len as usize > bytes_read {
-                                read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
+                                read_more(
+                                    &mut chunk,
+                                    start_offset,
+                                    bytes_read,
+                                    &mut offset_last_record,
+                                );
                                 continue 'read;
                             }
                             offset += scheme_len as usize;
@@ -907,18 +1233,35 @@ impl Storage {
                                 }
                             }
 
-                            Self::create_in_memory_table(self, name, HashInMemoryIndex::new(), is_it_logging, scheme.unwrap(), user_scheme);
+                            Self::create_in_memory_table(
+                                self,
+                                name,
+                                HashInMemoryIndex::new(),
+                                is_it_logging,
+                                scheme.unwrap(),
+                                user_scheme,
+                            );
                         }
                         CREATE_TABLE_ON_DISK => {
                             if offset + 2 > bytes_read {
-                                read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
+                                read_more(
+                                    &mut chunk,
+                                    start_offset,
+                                    bytes_read,
+                                    &mut offset_last_record,
+                                );
                                 continue 'read;
                             }
                             number = (chunk[offset + 1] as u16) << 8 | (chunk[offset] as u16);
                             offset += 2;
 
                             if offset + 2 > bytes_read {
-                                read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
+                                read_more(
+                                    &mut chunk,
+                                    start_offset,
+                                    bytes_read,
+                                    &mut offset_last_record,
+                                );
                                 continue 'read;
                             }
 
@@ -926,7 +1269,12 @@ impl Storage {
                             offset += 2;
 
                             if offset + name_len as usize > bytes_read {
-                                read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
+                                read_more(
+                                    &mut chunk,
+                                    start_offset,
+                                    bytes_read,
+                                    &mut offset_last_record,
+                                );
                                 continue 'read;
                             }
                             name_offset = offset;
@@ -936,7 +1284,12 @@ impl Storage {
                             let name = String::from_utf8(name).unwrap();
 
                             if offset + 2 > bytes_read {
-                                read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
+                                read_more(
+                                    &mut chunk,
+                                    start_offset,
+                                    bytes_read,
+                                    &mut offset_last_record,
+                                );
                                 continue 'read;
                             }
 
@@ -945,7 +1298,12 @@ impl Storage {
                             scheme_offset = offset;
 
                             if offset + scheme_len as usize > bytes_read {
-                                read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
+                                read_more(
+                                    &mut chunk,
+                                    start_offset,
+                                    bytes_read,
+                                    &mut offset_last_record,
+                                );
                                 continue 'read;
                             }
                             offset += scheme_len as usize;
@@ -963,18 +1321,34 @@ impl Storage {
                                 }
                             }
 
-                            Self::create_on_disk_table(self, name, HashInMemoryIndex::new(), scheme.unwrap(), user_scheme);
+                            Self::create_on_disk_table(
+                                self,
+                                name,
+                                HashInMemoryIndex::new(),
+                                scheme.unwrap(),
+                                user_scheme,
+                            );
                         }
                         CREATE_TABLE_CACHE => {
                             if offset + 2 > bytes_read {
-                                read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
+                                read_more(
+                                    &mut chunk,
+                                    start_offset,
+                                    bytes_read,
+                                    &mut offset_last_record,
+                                );
                                 continue 'read;
                             }
                             number = (chunk[offset + 1] as u16) << 8 | (chunk[offset] as u16);
                             offset += 2;
 
                             if offset + 1 > bytes_read {
-                                read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
+                                read_more(
+                                    &mut chunk,
+                                    start_offset,
+                                    bytes_read,
+                                    &mut offset_last_record,
+                                );
                                 continue 'read;
                             }
 
@@ -982,15 +1356,32 @@ impl Storage {
                             offset += 1;
 
                             if offset + 8 > bytes_read {
-                                read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
+                                read_more(
+                                    &mut chunk,
+                                    start_offset,
+                                    bytes_read,
+                                    &mut offset_last_record,
+                                );
                                 continue 'read;
                             }
 
-                            cache_duration = (chunk[offset + 7] as u64) << 56 | (chunk[offset + 6] as u64) << 48 | (chunk[offset + 5] as u64) << 40 | (chunk[offset + 4] as u64) << 32 | (chunk[offset + 3] as u64) << 24 | (chunk[offset + 2] as u64) << 16 | (chunk[offset + 1] as u64) << 8 | (chunk[offset] as u64);
+                            cache_duration = (chunk[offset + 7] as u64) << 56
+                                | (chunk[offset + 6] as u64) << 48
+                                | (chunk[offset + 5] as u64) << 40
+                                | (chunk[offset + 4] as u64) << 32
+                                | (chunk[offset + 3] as u64) << 24
+                                | (chunk[offset + 2] as u64) << 16
+                                | (chunk[offset + 1] as u64) << 8
+                                | (chunk[offset] as u64);
                             offset += 8;
 
                             if offset + 2 > bytes_read {
-                                read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
+                                read_more(
+                                    &mut chunk,
+                                    start_offset,
+                                    bytes_read,
+                                    &mut offset_last_record,
+                                );
                                 continue 'read;
                             }
 
@@ -998,7 +1389,12 @@ impl Storage {
                             offset += 2;
 
                             if offset + name_len as usize > bytes_read {
-                                read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
+                                read_more(
+                                    &mut chunk,
+                                    start_offset,
+                                    bytes_read,
+                                    &mut offset_last_record,
+                                );
                                 continue 'read;
                             }
                             name_offset = offset;
@@ -1008,7 +1404,12 @@ impl Storage {
                             let name = String::from_utf8(name).unwrap();
 
                             if offset + 2 > bytes_read {
-                                read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
+                                read_more(
+                                    &mut chunk,
+                                    start_offset,
+                                    bytes_read,
+                                    &mut offset_last_record,
+                                );
                                 continue 'read;
                             }
 
@@ -1017,7 +1418,12 @@ impl Storage {
                             scheme_offset = offset;
 
                             if offset + scheme_len as usize > bytes_read {
-                                read_more(&mut chunk, start_offset, bytes_read, &mut offset_last_record);
+                                read_more(
+                                    &mut chunk,
+                                    start_offset,
+                                    bytes_read,
+                                    &mut offset_last_record,
+                                );
                                 continue 'read;
                             }
                             offset += scheme_len as usize;
@@ -1035,10 +1441,21 @@ impl Storage {
                                 }
                             }
 
-                            Self::create_cache_table(self, name, HashInMemoryIndex::new(), cache_duration, is_it_logging, scheme.unwrap(), user_scheme);
+                            Self::create_cache_table(
+                                self,
+                                name,
+                                HashInMemoryIndex::new(),
+                                cache_duration,
+                                is_it_logging,
+                                scheme.unwrap(),
+                                user_scheme,
+                            );
                         }
                         _ => {
-                            panic!("Unknown action was detected while reading the log: {}", action);
+                            panic!(
+                                "Unknown action was detected while reading the log: {}",
+                                action
+                            );
                         }
                     };
                 }

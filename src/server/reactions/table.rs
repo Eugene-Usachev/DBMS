@@ -1,11 +1,13 @@
-use crate::connection::{BufConnection, BufReader, BufWriter, Status};
-use crate::constants::actions;
-use crate::index::HashInMemoryIndex;
-use crate::scheme::scheme::{empty_scheme, scheme_from_bytes};
-use crate::storage::storage::Storage;
-use crate::stream::Stream;
-use crate::utils::bytes::uint;
-use crate::writers::{LogWriter};
+use crate::{
+    connection::{BufWriter, BufReader, Status, BufConnection},
+    constants::actions,
+    index::HashInMemoryIndex,
+    scheme::scheme::{empty_scheme, scheme_from_bytes},
+    storage::storage::Storage,
+    stream::Stream,
+    utils::bytes::uint,
+    writers::{LogWriter}
+};
 
 #[inline(always)]
 pub fn create_table_in_memory<'stream, S: Stream, R: BufReader<'stream, S>, W: BufWriter<'stream, S>> (

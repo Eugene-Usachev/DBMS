@@ -5,16 +5,18 @@ use std::{
     sync:: {
         {Arc, RwLock, Mutex},
         atomic::AtomicU64
-    }
+    },
+    path::PathBuf
 };
 #[cfg(not(target_os = "windows"))]
 use std::fs::OpenOptions;
-use std::path::PathBuf;
 use ahash::{HashMap, HashMapExt, RandomState};
 use positioned_io::{ReadAt};
-use crate::bin_types::{BinKey, BinValue};
-use crate::index::Index;
-use crate::writers::{get_size_for_key_len, get_size_for_value_len, SizedWriter};
+use crate::{
+    bin_types::{BinKey, BinValue},
+    index::Index,
+    writers::{get_size_for_key_len, get_size_for_value_len, SizedWriter}
+};
 
 const BUFFER_SIZE: usize = 4100;
 const DELETE_BUFFER_SIZE: usize = 66;

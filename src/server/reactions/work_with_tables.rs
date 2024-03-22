@@ -1,10 +1,12 @@
-use crate::bin_types::{BinKey, BinValue};
-use crate::connection::{BufConnection, BufReader, BufWriter, Status};
-use crate::constants::actions;
-use crate::storage::storage::Storage;
-use crate::stream::Stream;
-use crate::utils::bytes::uint;
-use crate::writers::LogWriter;
+use crate::{
+    bin_types::{BinKey, BinValue},
+    connection::{BufConnection, BufReader, BufWriter, Status},
+    constants::actions,
+    storage::storage::Storage,
+    stream::Stream,
+    utils::bytes::uint,
+    writers::LogWriter
+};
 
 #[inline(always)]
 pub fn get<'stream, S: Stream, R: BufReader<'stream, S>, W: BufWriter<'stream, S>> (

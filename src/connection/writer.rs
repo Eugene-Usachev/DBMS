@@ -1,10 +1,11 @@
-use std::io::Write;
-use crate::connection::{
-    connection::BufWriter as BufWriterTrait,
-    BUFFER_SIZE
+use crate::{
+    connection::{
+        connection::BufWriter as BufWriterTrait,
+        BUFFER_SIZE,
+        status::Status
+    },
+    stream::Stream
 };
-use crate::connection::status::Status;
-use crate::stream::Stream;
 
 pub struct BufWriter<S: Stream> {
     buf: [u8; BUFFER_SIZE],

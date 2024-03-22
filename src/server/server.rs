@@ -1,27 +1,33 @@
-use std::fs::OpenOptions;
-use std::io::{Seek, SeekFrom, Write};
-use std::net::{TcpListener};
+use std::{
+    fs::OpenOptions,
+    io::{Seek, SeekFrom, Write},
+    net::{TcpListener},
+    path::PathBuf,
+    sync::{Arc},
+    {mem, thread}
+};
 #[cfg(not(target_os = "windows"))]
 use std::os::unix::net::UnixListener;
-use std::path::PathBuf;
-use std::sync::{Arc};
-use std::{mem, thread};
-use crate::connection::{BufConnection, buffered, BufReader, BufWriter, Status};
-
-use crate::constants::actions;
-use crate::constants::actions::DONE;
-use crate::{error, success, warn};
-use crate::node::Node;
-use crate::server::cfg::Config;
-use crate::storage::storage::Storage;
-
-use crate::server::reactions::status::{get_hierarchy, get_shard_metadata, ping};
-use crate::server::reactions::table::{create_table_cache, create_table_in_memory, create_table_on_disk, get_tables_names};
-use crate::server::reactions::work_with_tables::{delete, get, get_field, get_fields, insert, set};
-use crate::stream::Stream;
-use crate::utils::bytes::uint;
-use crate::utils::read_more;
-use crate::writers::LogWriter;
+use crate::{
+    connection::{BufConnection, buffered, BufReader, BufWriter, Status}
+    constants::actions,
+    constants::actions::DONE,
+    {error, success, warn},
+    node::Node,
+    server::cfg::Config,
+    storage::storage::Storage,
+    server::reactions::{
+        status::{get_hierarchy, get_shard_metadata, ping},
+        table::{create_table_cache, create_table_in_memory, create_table_on_disk, get_tables_names},
+        work_with_tables::{delete, get, get_field, get_fields, insert, set},
+    },
+    stream::Stream,
+    utils::{
+        bytes::uint,
+        read_more
+    },
+    writers::LogWriter
+};
 
 pub struct Server {
     storage: &'static Storage,

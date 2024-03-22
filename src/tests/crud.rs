@@ -1,12 +1,12 @@
 #![cfg(test)]
-use std::sync::Arc;
-use std::thread;
-use crate::bin_types::{BinKey, BinValue};
-use crate::index::HashInMemoryIndex;
-use crate::scheme::scheme::empty_scheme;
-use crate::storage::Storage;
-use crate::success;
-use crate::writers::LogWriter;
+use std::{sync::Arc, thread};
+use crate::{
+    bin_types::{BinKey, BinValue},
+    index::HashInMemoryIndex,
+    scheme::scheme::empty_scheme,
+    storage::Storage, success,
+    writers::LogWriter
+};
 
 #[cfg(test)]
 pub fn crud(storage: &'static Storage) {

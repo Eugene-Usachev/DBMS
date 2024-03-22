@@ -1,12 +1,14 @@
 use std::io::Read;
-use crate::connection::{
-    status::Status,
-    connection::BufReader as BufReaderTrait,
-    BUFFER_SIZE
-};
-use crate::error;
-use crate::stream::Stream;
-use crate::utils::bytes::uint::{u16, u32};
+use crate::{
+    stream::Stream,
+    utils::bytes::uint::{u16, u32},
+    error,
+    connection::{
+        status::Status,
+        connection::BufReader as BufReaderTrait,
+        BUFFER_SIZE
+    }
+}
 
 pub struct BufReader<S: Stream> {
     pub buf: [u8; BUFFER_SIZE],

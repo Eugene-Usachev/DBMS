@@ -1,11 +1,13 @@
 #![cfg(test)]
 use std::sync::Arc;
-use crate::bin_types::{BinKey, BinValue};
-use crate::index::HashInMemoryIndex;
-use crate::info;
-use crate::scheme::scheme::empty_scheme;
-use crate::storage::Storage;
-use crate::writers::LogWriter;
+use crate::{
+    bin_types::{BinKey, BinValue},
+    index::HashInMemoryIndex,
+    info,
+    scheme::scheme::empty_scheme,
+    storage::Storage,
+    writers::LogWriter
+};
 
 #[cfg(test)]
 pub fn crud_bench(storage: &'static Storage) {
